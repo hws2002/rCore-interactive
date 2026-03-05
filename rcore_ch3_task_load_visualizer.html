@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rCore ch3 - Task Load Visualizer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0f1320;color:#e6edf3;font-family:Consolas,"Courier New",monospace;font-size:13px;height:100vh;display:flex;flex-direction:column}
+h1{padding:8px 12px;background:#161b2e;border-bottom:1px solid #2a3553;font-size:14px;color:#9cc1ff}
+#main{flex:1;display:grid;grid-template-columns:34% 26% 40%;min-height:0}
+#left,#mid,#right{padding:8px;min-height:0;overflow:auto}
+#left{background:#0b1020;border-right:1px solid #25314f}
+#mid{background:#10172a;border-right:1px solid #25314f}
+#right{background:#0c1324}
+.card{background:#121a2a;border:1px solid #2a3553;border-radius:6px;padding:8px;margin-bottom:8px}
+.card h2{font-size:11px;color:#7fb1ff;margin-bottom:6px;letter-spacing:.5px}
+#stepbar{display:flex;gap:10px;align-items:center}
+#stepnum{min-width:92px;color:#7fb1ff;font-weight:bold}
+#steptitle{flex:1;font-weight:bold}
+#stepfile{font-size:11px;color:#8ea0c1}
+#mem{display:flex;flex-direction:column;gap:4px}
+.region{position:relative;border:1px solid #3a4663;border-radius:4px;padding:3px 5px}
+.r-kernel{background:#27415e}
+.r-app0{background:#2f6f4e}
+.r-app1{background:#3d865f}
+.r-meta{font-size:10px;color:#dbe8ff}
+.r-name{font-size:11px}
+.active{outline:2px solid #ffd166}
+#notes{display:flex;flex-direction:column;gap:3px}
+.note{font-size:10px;color:#9fb2d2}
+#task-table{width:100%;border-collapse:collapse;font-size:11px}
+#task-table th,#task-table td{border:1px solid #2a3553;padding:4px;text-align:left}
+#task-table th{background:#1b253b;color:#9ec0ff}
+.st-ready{color:#f9c74f}
+.st-run{color:#90be6d}
+.st-init{color:#9aa5bf}
+#reggrid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.kv{display:flex;justify-content:space-between;border:1px solid #2a3553;border-radius:4px;padding:4px 6px;background:#10182a}
+.k{color:#8ea0c1}
+.v{color:#e6edf3}
+#code{font-size:12px;line-height:1.45;white-space:pre;max-height:260px;overflow:auto;border:1px solid #2a3553;border-radius:4px;background:#0e1628;padding:6px}
+.line{display:block}
+.hl{background:#3b2d12;color:#ffd166}
+.done{opacity:.45}
+#desc{font-size:12px;line-height:1.5;color:#d0dcf8}
+#nav{display:flex;gap:10px;align-items:center;margin-top:6px}
+button{background:#1b253b;color:#d6e4ff;border:1px solid #2a3553;padding:6px 12px;border-radius:5px;cursor:pointer}
+button:disabled{opacity:.4;cursor:not-allowed}
+#bar{flex:1;height:6px;background:#1b253b;border-radius:3px;overflow:hidden}
+#fill{height:100%;width:0;background:linear-gradient(90deg,#3d7cff,#7fb1ff)}
+</style>
+</head>
+<body>
+<h1>rCore ch3: Task Load / Init Flow (boot -> app load -> TCB build -> run_first_task)</h1>
+<div id="main">
+  <div id="left">
+    <div class="card">
+      <h2>Physical Layout (focus: app slots)</h2>
+      <div id="mem"></div>
+      <div id="notes"></div>
+    </div>
+    <div class="card">
+      <h2>Task Table</h2>
+      <table id="task-table">
+        <thead><tr><th>Task</th><th>Status</th><th>Base</th><th>kstack_top</th></tr></thead>
+        <tbody id="task-body"></tbody>
+      </table>
+    </div>
+  </div>
+  <div id="mid">
+    <div class="card">
+      <h2>Kernel State</h2>
+      <div id="reggrid"></div>
+    </div>
+    <div class="card">
+      <h2>Step</h2>
+      <div id="stepbar">
+        <div id="stepnum"></div>
+        <div id="steptitle"></div>
+      </div>
+      <div id="stepfile"></div>
+      <div id="nav">
+        <button id="prev" onclick="go(-1)">Prev</button>
+        <div id="bar"><div id="fill"></div></div>
+        <button id="next" onclick="go(1)">Next</button>
+      </div>
+    </div>
+  </div>
+  <div id="right">
+    <div class="card">
+      <h2>Code</h2>
+      <div id="code"></div>
+    </div>
+    <div class="card">
+      <h2>Explanation</h2>
+      <div id="desc"></div>
+    </div>
+  </div>
+</div>
+<script>
+const CODE_BOOT = [
+  "pub fn rust_main() -> ! {",
+  "    clear_bss();",
+  "    logging::init();",
+  "    mm::init();",
+  "    trap::init();",
+  "    task::add_initproc();",
+  "    task::run_first_task();",
+  "}"
+];
+
+const CODE_LOADER = [
+  "pub fn load_apps() {",
+  "    let num = get_num_app();",
+  "    for i in 0..num {",
+  "        let base = APP_BASE + i * APP_SIZE_LIMIT;",
+  "        copy_app_data_to(base);",
+  "        init_app_cx(i, base);",
+  "    }",
+  "}"
+];
+
+const CODE_TASK = [
+  "impl TaskControlBlock {",
+  "    pub fn new(i: usize) -> Self {",
+  "        let (ustack, trap_cx, entry) = build_user_space(i);",
+  "        let kstack_top = KStack::new(i).get_top();",
+  "        *trap_cx = TrapContext::app_init_context(entry, ustack, KERNEL_TOKEN, kstack_top, trap_handler as usize);",
+  "        let task_cx = TaskContext::goto_restore(kstack_top - core::mem::size_of::<TrapContext>());",
+  "        Self { status: Ready, task_cx, kstack_top }",
+  "    }",
+  "}"
+];
+
+const APP_BASE = 0x80400000;
+const APP_SIZE_LIMIT = 0x20000;
+
+const STEPS = [
+  {
+    title:"Enter rust_main",
+    file:"os/src/main.rs",
+    code:CODE_BOOT, line:0,
+    desc:"Kernel entry. No task loaded yet.",
+    regs:{mode:"S", stvec:"-", current:"-", num_app:0},
+    active:["kernel"],
+    tasks:[
+      {id:0,status:"Init",base:"-",kstack:"-"},
+      {id:1,status:"Init",base:"-",kstack:"-"}
+    ]
+  },
+  {
+    title:"trap::init sets stvec",
+    file:"os/src/trap/mod.rs",
+    code:CODE_BOOT, line:4,
+    desc:"Trap vector points to __alltraps in Direct mode.",
+    regs:{mode:"S", stvec:"__alltraps", current:"-", num_app:0},
+    active:["kernel"],
+    tasks:[
+      {id:0,status:"Init",base:"-",kstack:"-"},
+      {id:1,status:"Init",base:"-",kstack:"-"}
+    ]
+  },
+  {
+    title:"loader gets app count",
+    file:"os/src/loader.rs",
+    code:CODE_LOADER, line:1,
+    desc:"Read app metadata table generated by build script.",
+    regs:{mode:"S", stvec:"__alltraps", current:"-", num_app:2},
+    active:["kernel"],
+    tasks:[
+      {id:0,status:"Init",base:"-",kstack:"-"},
+      {id:1,status:"Init",base:"-",kstack:"-"}
+    ]
+  },
+  {
+    title:"Load app0 to slot0",
+    file:"os/src/loader.rs",
+    code:CODE_LOADER, line:4,
+    desc:"Copy app0 image to APP_BASE + 0 * APP_SIZE_LIMIT.",
+    regs:{mode:"S", stvec:"__alltraps", current:"-", num_app:2},
+    active:["kernel","app0"],
+    tasks:[
+      {id:0,status:"Init",base:"0x80400000",kstack:"-"},
+      {id:1,status:"Init",base:"-",kstack:"-"}
+    ]
+  },
+  {
+    title:"Build TCB for task0",
+    file:"os/src/task/task.rs",
+    code:CODE_TASK, line:5,
+    desc:"Create trap context on kstack0 and task context (ra=__restore).",
+    regs:{mode:"S", stvec:"__alltraps", current:"-", num_app:2},
+    active:["kernel","app0"],
+    tasks:[
+      {id:0,status:"Ready",base:"0x80400000",kstack:"0x80282000"},
+      {id:1,status:"Init",base:"-",kstack:"-"}
+    ]
+  },
+  {
+    title:"Load app1 to slot1",
+    file:"os/src/loader.rs",
+    code:CODE_LOADER, line:4,
+    desc:"Copy app1 image to APP_BASE + 1 * APP_SIZE_LIMIT.",
+    regs:{mode:"S", stvec:"__alltraps", current:"-", num_app:2},
+    active:["kernel","app1"],
+    tasks:[
+      {id:0,status:"Ready",base:"0x80400000",kstack:"0x80282000"},
+      {id:1,status:"Init",base:"0x80420000",kstack:"-"}
+    ]
+  },
+  {
+    title:"Build TCB for task1",
+    file:"os/src/task/task.rs",
+    code:CODE_TASK, line:5,
+    desc:"Create trap context on kstack1 and task context for first restore.",
+    regs:{mode:"S", stvec:"__alltraps", current:"-", num_app:2},
+    active:["kernel","app1"],
+    tasks:[
+      {id:0,status:"Ready",base:"0x80400000",kstack:"0x80282000"},
+      {id:1,status:"Ready",base:"0x80420000",kstack:"0x80285000"}
+    ]
+  },
+  {
+    title:"TaskManager initialized",
+    file:"os/src/task/manager.rs",
+    code:["TASK_MANAGER = [task0, task1];","current_task = 0;"], line:1,
+    desc:"Scheduler metadata is ready. No user code executed yet.",
+    regs:{mode:"S", stvec:"__alltraps", current:"0", num_app:2},
+    active:["kernel"],
+    tasks:[
+      {id:0,status:"Ready",base:"0x80400000",kstack:"0x80282000"},
+      {id:1,status:"Ready",base:"0x80420000",kstack:"0x80285000"}
+    ]
+  },
+  {
+    title:"run_first_task -> Task0 Running",
+    file:"os/src/task/mod.rs",
+    code:["pub fn run_first_task() {","    tasks[0].status = Running;","    __switch(...);","}"], line:2,
+    desc:"Switch from boot context to task0 context. Next visible flow enters __restore.",
+    regs:{mode:"S", stvec:"__alltraps", current:"0", num_app:2},
+    active:["kernel","app0"],
+    tasks:[
+      {id:0,status:"Running",base:"0x80400000",kstack:"0x80282000"},
+      {id:1,status:"Ready",base:"0x80420000",kstack:"0x80285000"}
+    ]
+  }
+];
+
+const REGIONS = [
+  {id:"app1", cls:"r-app1", name:"App1 Slot", top:"0x80420000", low:"0x80400000", reason:"APP_BASE + 1*APP_SIZE_LIMIT"},
+  {id:"app0", cls:"r-app0", name:"App0 Slot", top:"0x80400000", low:"0x803e0000", reason:"APP_BASE + 0*APP_SIZE_LIMIT"},
+  {id:"kernel", cls:"r-kernel", name:"Kernel", top:"0x80280000", low:"0x80200000", reason:"tutorial linker layout"}
+];
+
+let step = 0;
+
+function renderMem(activeSet) {
+  const mem = document.getElementById("mem");
+  mem.innerHTML = "";
+  REGIONS.forEach(r => {
+    const d = document.createElement("div");
+    d.className = `region ${r.cls}` + (activeSet.includes(r.id) ? " active" : "");
+    d.innerHTML = `<div class="r-name">${r.name}</div><div class="r-meta">top ${r.top} | low ${r.low}</div>`;
+    mem.appendChild(d);
+  });
+  const notes = document.getElementById("notes");
+  notes.innerHTML = "";
+  REGIONS.forEach(r => {
+    const n = document.createElement("div");
+    n.className = "note";
+    n.textContent = `${r.name}: decided by ${r.reason}`;
+    notes.appendChild(n);
+  });
+}
+
+function renderTasks(tasks) {
+  const body = document.getElementById("task-body");
+  body.innerHTML = "";
+  tasks.forEach(t => {
+    const tr = document.createElement("tr");
+    const statusCls = t.status === "Running" ? "st-run" : (t.status === "Ready" ? "st-ready" : "st-init");
+    tr.innerHTML = `<td>Task${t.id}</td><td class="${statusCls}">${t.status}</td><td>${t.base}</td><td>${t.kstack}</td>`;
+    body.appendChild(tr);
+  });
+}
+
+function renderRegs(regs) {
+  const g = document.getElementById("reggrid");
+  g.innerHTML = "";
+  [["mode",regs.mode],["stvec",regs.stvec],["current_task",regs.current],["num_app",String(regs.num_app)]].forEach(([k,v]) => {
+    const d = document.createElement("div");
+    d.className = "kv";
+    d.innerHTML = `<span class="k">${k}</span><span class="v">${v}</span>`;
+    g.appendChild(d);
+  });
+}
+
+function renderCode(code, line) {
+  const el = document.getElementById("code");
+  el.innerHTML = "";
+  code.forEach((t, i) => {
+    const d = document.createElement("span");
+    d.className = "line" + (i < line ? " done" : "") + (i === line ? " hl" : "");
+    d.textContent = `${String(i+1).padStart(2," ")}  ${t}`;
+    el.appendChild(d);
+  });
+}
+
+function render() {
+  const st = STEPS[step];
+  document.getElementById("stepnum").textContent = `Step ${step+1}/${STEPS.length}`;
+  document.getElementById("steptitle").textContent = st.title;
+  document.getElementById("stepfile").textContent = st.file;
+  document.getElementById("desc").textContent = st.desc;
+  renderMem(st.active);
+  renderTasks(st.tasks);
+  renderRegs(st.regs);
+  renderCode(st.code, st.line);
+  document.getElementById("prev").disabled = step === 0;
+  document.getElementById("next").disabled = step === STEPS.length - 1;
+  document.getElementById("fill").style.width = `${(step/(STEPS.length-1))*100}%`;
+}
+
+function go(d) {
+  step = Math.max(0, Math.min(STEPS.length - 1, step + d));
+  render();
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") go(1);
+  if (e.key === "ArrowLeft" || e.key === "ArrowUp") go(-1);
+});
+
+render();
+</script>
+</body>
+</html>
