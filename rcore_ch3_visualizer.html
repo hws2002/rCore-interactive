@@ -19,6 +19,8 @@ h1{text-align:center;padding:8px;background:#16213e;color:#a8d8ea;font-size:15px
 #mem-legend{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
 .leg{display:flex;align-items:center;gap:3px;font-size:9px}
 .leg-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+#mem-boundary-notes{margin-top:6px;border-top:1px dashed #30363d;padding-top:4px;display:flex;flex-direction:column;gap:2px}
+.mem-note{font-size:9px;color:#9fb0c5;line-height:1.3}
 
 /* CPU state */
 #cpu-state{background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:8px;flex-shrink:0}
@@ -48,6 +50,10 @@ h1{text-align:center;padding:8px;background:#16213e;color:#a8d8ea;font-size:15px
 .csr-cell.changed{background:#3d2b00;border-color:#d29922}
 .csr-name{color:#79c0ff;font-size:11px;min-width:70px}
 .csr-val{color:#e6edf3;font-size:11px;font-family:monospace}
+#stack-change-label{color:#79c0ff;font-size:10px;margin:8px 0 4px}
+#stack-change-box{display:flex;flex-direction:column;gap:3px;border:1px solid #21262d;border-radius:3px;padding:5px;background:#0b1018;max-height:130px;overflow:auto}
+.stack-change-item{font-size:10px;color:#c9d1d9;line-height:1.35}
+.stack-change-none{font-size:10px;color:#6e7681}
 
 /* ── RIGHT PANEL ── */
 #right{display:flex;flex-direction:column;background:#0d1117;padding:10px;gap:8px;overflow:hidden;border-left:1px solid #0f3460;min-width:0}
@@ -122,6 +128,7 @@ h1{text-align:center;padding:8px;background:#16213e;color:#a8d8ea;font-size:15px
       <div class="leg"><div class="leg-dot" style="background:#e85d04"></div>TrapCtx</div>
       <div class="leg"><div class="leg-dot" style="background:#f4c542"></div>TaskCtx</div>
     </div>
+    <div id="mem-boundary-notes"></div>
   </div>
   <div id="cpu-state">
     <h2>🖥️ CPU 상태</h2>
@@ -139,6 +146,8 @@ h1{text-align:center;padding:8px;background:#16213e;color:#a8d8ea;font-size:15px
   <div id="csr-section">
     <div id="csr-label">CSR 레지스터</div>
     <div id="csr-grid"></div>
+    <div id="stack-change-label">Stack changes (this step)</div>
+    <div id="stack-change-box"></div>
   </div>
 </div>
 
@@ -191,6 +200,44 @@ const TRAP_OVERLAYS = {
   trapctx1: {parent:'kstack1', label:'TrapCtx1 272B', color:'#e85d04', h:10},
   taskctx:  {parent:'kernel',  label:'TaskCtx',       color:'#f4c542', h:10},
 };
+
+function parseHexAddr(addrStr) {
+  return Number.parseInt(addrStr, 16);
+}
+
+function fmtHex(v) {
+  return '0x' + (v >>> 0).toString(16).padStart(8, '0');
+}
+
+function renderMemoryBoundaryNotes() {
+  const box = document.getElementById('mem-boundary-notes');
+  if (!box) return;
+  box.innerHTML = '';
+  MEM_LAYOUT.forEach(r => {
+    const top = parseHexAddr(r.addr);
+    let lowText = '';
+    let rule = '';
+    const mKB = r.label.match(/(\d+)\s*KB/i);
+    if (mKB) {
+      const size = Number.parseInt(mKB[1], 10) * 1024;
+      lowText = fmtHex(top - size);
+      rule = `${mKB[1]}KB label`;
+    } else if (r.id === 'app0' || r.id === 'app1') {
+      lowText = `~${fmtHex(top - 0x20000)}`;
+      rule = 'APP_SIZE_LIMIT (estimated)';
+    } else if (r.id === 'kernel') {
+      lowText = '0x80200000';
+      rule = 'kernel mapped range (tutorial layout)';
+    } else {
+      lowText = '~unknown';
+      rule = 'not fixed in this visual';
+    }
+    const div = document.createElement('div');
+    div.className = 'mem-note';
+    div.textContent = `${r.label}: top ${r.addr}, low ${lowText}  [${rule}]`;
+    box.appendChild(div);
+  });
+}
 
 // sp value → visual Y (piecewise linear)
 function spToVisualY(sp) {
@@ -648,6 +695,7 @@ function renderMemory(activeSet) {
   // ── sscratch arrow (left side, cyan, further from bar) ──
   const scY = spToVisualY(st.regs.sscratch);
   if (scY !== null) drawArrow(scY, 26, 'sc', '#00bcd4', 'arr-sc');
+  renderMemoryBoundaryNotes();
 }
 
 // ── Render registers ──
@@ -674,6 +722,101 @@ function renderRegs(regs, changed) {
     cell.className = 'csr-cell' + (isChanged ? ' changed' : '');
     cell.innerHTML = `<span class="csr-name">${label}${isChanged?'★':''}</span><span class="csr-val">0x${val.toString(16).padStart(8,'0')}</span>`;
     csrGrid.appendChild(cell);
+  });
+}
+
+function activeFrameOf(st) {
+  if (!st || !st.callStack) return null;
+  for (let i = st.callStack.length - 1; i >= 0; i--) {
+    if (st.callStack[i].code) return st.callStack[i];
+  }
+  return null;
+}
+
+function hex32(v) {
+  return '0x' + ((v >>> 0).toString(16).padStart(8, '0'));
+}
+
+function stackRegion(addr) {
+  if (addr >= 0x80284ef0 && addr < 0x80285000) return 'TrapCtx1/KStack1';
+  if (addr >= 0x80281ef0 && addr < 0x80282000) return 'TrapCtx0/KStack0';
+  if (addr >= 0x80285000 && addr < 0x80287000) return 'KStack1';
+  if (addr >= 0x80282000 && addr < 0x80284000) return 'KStack0';
+  if (addr >= 0x80260000 && addr < 0x80261000) return 'TaskCtx/TCB';
+  return 'Other';
+}
+
+function stackWritesForStep(stepIdx) {
+  if (stepIdx <= 0) return [];
+  const prev = STEPS[stepIdx - 1];
+  const cur = STEPS[stepIdx];
+  const prevF = activeFrameOf(prev);
+  const curF = activeFrameOf(cur);
+  if (!curF || curF.curLine == null || !curF.code) return [];
+
+  let start = curF.curLine;
+  let end = curF.curLine - 1;
+  if (prevF && prevF.file === curF.file && prevF.code === curF.code && prevF.curLine != null && curF.curLine > prevF.curLine) {
+    start = prevF.curLine + 1;
+    end = curF.curLine - 1;
+  }
+
+  // If control just entered a new active frame, treat it as executing from line 1 to (curLine-1).
+  if (!(prevF && prevF.file === curF.file && prevF.code === curF.code) && curF.curLine > 0) {
+    start = 0;
+    end = curF.curLine - 1;
+  }
+
+  let sp = (prev.regs && prev.regs.x2) || (cur.regs && cur.regs.x2) || 0;
+  const a0 = (cur.regs && cur.regs.x10) || (prev.regs && prev.regs.x10) || 0;
+  const rows = [];
+
+  for (let i = start; i <= end; i++) {
+    const line = ((curF.code[i] && curF.code[i].t) || '').trim();
+    const ln = i + 1;
+    const lineRows = [];
+
+    if (/addi sp,\s*sp,\s*-34\*8/.test(line)) {
+      sp -= 34 * 8;
+      lineRows.push(`alloc TrapContext [${hex32(sp)}..${hex32(sp + 34 * 8)}) @ ${stackRegion(sp)}`);
+    }
+    if (/sd x1,\s*1\*8\(sp\)/.test(line)) lineRows.push(`${hex32(sp + 8)} <= x1(ra) @ ${stackRegion(sp + 8)}`);
+    if (/sd x3,\s*3\*8\(sp\)/.test(line)) lineRows.push(`${hex32(sp + 24)} <= x3(gp) @ ${stackRegion(sp + 24)}`);
+    if (/\bSAVE_GP\b/.test(line)) lineRows.push(`save x5~x31 to TrapContext @ ${stackRegion(sp)}`);
+    if (/sd t0,\s*32\*8\(sp\)/.test(line)) lineRows.push(`${hex32(sp + 256)} <= sstatus @ ${stackRegion(sp + 256)}`);
+    if (/sd t1,\s*33\*8\(sp\)/.test(line)) lineRows.push(`${hex32(sp + 264)} <= sepc @ ${stackRegion(sp + 264)}`);
+    if (/sd t2,\s*2\*8\(sp\)/.test(line)) lineRows.push(`${hex32(sp + 16)} <= user_sp @ ${stackRegion(sp + 16)}`);
+    if (/sd ra,\s*0\(a0\)/.test(line)) lineRows.push(`${hex32(a0)} <= ra @ ${stackRegion(a0)}`);
+    if (/sd sp,\s*8\(a0\)/.test(line)) lineRows.push(`${hex32(a0 + 8)} <= sp @ ${stackRegion(a0 + 8)}`);
+    if (/\bSAVE_SN\b/.test(line)) lineRows.push(`save s0~s11 @ ${stackRegion(a0 + 16)}`);
+    if (/addi sp,\s*sp,\s*34\*8/.test(line)) sp += 34 * 8;
+
+    if (lineRows.length === 0) {
+      rows.push(`L${ln}: (no stack write)`);
+    } else {
+      lineRows.forEach(msg => rows.push(`L${ln}: ${msg}`));
+    }
+  }
+  return rows;
+}
+
+function renderStackChanges(stepIdx) {
+  const box = document.getElementById('stack-change-box');
+  if (!box) return;
+  box.innerHTML = '';
+  const rows = stackWritesForStep(stepIdx);
+  if (rows.length === 0) {
+    const div = document.createElement('div');
+    div.className = 'stack-change-none';
+    div.textContent = 'No stack write in this step';
+    box.appendChild(div);
+    return;
+  }
+  rows.forEach(text => {
+    const div = document.createElement('div');
+    div.className = 'stack-change-item';
+    div.textContent = text;
+    box.appendChild(div);
   });
 }
 
@@ -770,6 +913,7 @@ function render() {
 
   // Registers
   renderRegs(st.regs, st.changed);
+  renderStackChanges(step);
 
   // Memory
   renderMemory(st.memActive);
