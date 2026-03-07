@@ -87,8 +87,8 @@ h1{text-align:center;padding:8px;background:#16213e;color:#a8d8ea;font-size:15px
 
 #desc-box{background:#161b22;border:1px solid #30363d;border-radius:4px;padding:10px 14px;flex-shrink:0}
 #desc-icon{font-size:16px;margin-bottom:4px}
-#desc-text{color:#c9d1d9;line-height:1.6;font-size:13px}
-#desc-detail{color:#8b949e;font-size:11px;margin-top:6px;line-height:1.5;font-style:italic}
+#desc-text{color:#c9d1d9;line-height:1.6;font-size:13px;white-space:pre-wrap}
+#desc-detail{color:#8b949e;font-size:11px;margin-top:6px;line-height:1.5;font-style:italic;white-space:pre-wrap}
 
 #nav{display:flex;justify-content:center;align-items:center;gap:20px;padding:8px;flex-shrink:0}
 .nav-btn{background:#21262d;color:#c9d1d9;border:1px solid #30363d;padding:8px 28px;border-radius:6px;cursor:pointer;font-size:14px;font-family:inherit;transition:all 0.2s}
@@ -177,28 +177,60 @@ h1{text-align:center;padding:8px;background:#16213e;color:#a8d8ea;font-size:15px
 </div>
 
 <script>
+// ── Step 자동 확장 (curLine 점프 시 중간 줄을 스텝으로 삽입) ──
+function _getActiveFrame(st) {
+  if (!st || !st.callStack) return null;
+  for (let i = st.callStack.length - 1; i >= 0; i--) {
+    if (st.callStack[i].code) return st.callStack[i];
+  }
+  return null;
+}
+function _expandToLineSteps(rawSteps) {
+  const result = [];
+  for (let si = 0; si < rawSteps.length; si++) {
+    const st      = rawSteps[si];
+    const prevExp = result.length > 0 ? result[result.length - 1] : null;
+    const afCur   = _getActiveFrame(st);
+    const afPrev  = _getActiveFrame(prevExp);
+    if (afCur && afPrev &&
+        afCur.code === afPrev.code &&
+        afCur.curLine > afPrev.curLine + 1) {
+      for (let ln = afPrev.curLine + 1; ln < afCur.curLine; ln++) {
+        const lineText = (afCur.code[ln] && afCur.code[ln].t.trim()) || '';
+        result.push({
+          title: lineText || '—', file: st.file, mode: st.mode, task: st.task,
+          callStack: st.callStack.map((frame, fi) =>
+            (fi === st.callStack.length - 1 && frame.code)
+              ? { ...frame, curLine: ln } : frame
+          ),
+          desc: '', detail: '',
+          regs: prevExp.regs, changed: [], memActive: prevExp.memActive,
+        });
+      }
+    }
+    result.push(st);
+  }
+  return result;
+}
+
 // ── ABI names ──
 const ABI = ['zero','ra','sp','gp','tp','t0','t1','t2','s0','s1','a0','a1','a2','a3','a4','a5','a6','a7','s2','s3','s4','s5','s6','s7','s8','s9','s10','s11','t3','t4','t5','t6'];
 
-// ── Memory region definitions (fixed visual heights — readability first) ──
-// SVG viewBox: 0 0 260 260, BAR_X=60, BAR_W=120
-// Only addrTop shown per region (no duplicate bottom/top labels)
+// ── Memory region definitions ──
 const MEM_LAYOUT = [
-  {id:'app1',    y:28,  h:28, label:'App1 .text',  addr:'0x80420000', color:'#40916c'},
-  {id:'app0',    y:58,  h:28, label:'App0 .text',  addr:'0x80400000', color:'#2d6a4f'},
-  // zigzag gap at y=88
-  {id:'ustack1', y:100, h:14, label:'UStack1 4KB', addr:'0x80286000', color:'#6a1e55'},
-  {id:'kstack1', y:116, h:34, label:'KStack1 8KB', addr:'0x80285000', color:'#7b3f00'},
-  {id:'ustack0', y:152, h:14, label:'UStack0 4KB', addr:'0x80283000', color:'#6a1e55'},
-  {id:'kstack0', y:168, h:34, label:'KStack0 8KB', addr:'0x80282000', color:'#7b3f00'},
-  {id:'kernel',  y:204, h:46, label:'Kernel',       addr:'0x80280000', color:'#3a5a8c'},
+  {id:'app1',    y:23,  h:45,  label:'App1 .text (128KB)', addr:'0x80420000', lowAddr:'0x80400000', color:'#40916c'},
+  {id:'app0',    y:70,  h:45,  label:'App0 .text (128KB)', addr:'0x80400000', lowAddr:'0x803E0000', color:'#2d6a4f'},
+  {id:'ustack1', y:130, h:26,  label:'UStack1  4KB',       addr:'0x80286000', lowAddr:'0x80285000', color:'#6a1e55'},
+  {id:'kstack1', y:158, h:72,  label:'KStack1  8KB',       addr:'0x80285000', lowAddr:'0x80283000', color:'#7b3f00'},
+  {id:'ustack0', y:234, h:26,  label:'UStack0  4KB',       addr:'0x80283000', lowAddr:'0x80282000', color:'#6a1e55'},
+  {id:'kstack0', y:263, h:72,  label:'KStack0  8KB',       addr:'0x80282000', lowAddr:'0x80280000', color:'#7b3f00'},
+  {id:'kernel',  y:339, h:120, label:'Kernel .text+.bss',  addr:'0x80280000', lowAddr:'0x80200000', color:'#3a5a8c'},
 ];
 
-// TrapCtx overlays — drawn at top of parent KStack when active
 const TRAP_OVERLAYS = {
-  trapctx0: {parent:'kstack0', label:'TrapCtx0 272B', color:'#e85d04', h:10},
-  trapctx1: {parent:'kstack1', label:'TrapCtx1 272B', color:'#e85d04', h:10},
-  taskctx:  {parent:'kernel',  label:'TaskCtx',       color:'#f4c542', h:10},
+  trapctx0: {parent:'kstack0', label:'TrapCtx0  272B', color:'#e85d04', h:18},
+  trapctx1: {parent:'kstack1', label:'TrapCtx1  272B', color:'#e85d04', h:18},
+  taskctx:  {parent:'kernel',  label:'TaskCtx',        color:'#f4c542', h:18},
 };
 
 function parseHexAddr(addrStr) {
@@ -214,37 +246,38 @@ function renderMemoryBoundaryNotes() {
   if (!box) return;
   box.innerHTML = '';
   MEM_LAYOUT.forEach(r => {
-    const top = parseHexAddr(r.addr);
-    let lowText = '';
-    let rule = '';
-    const mKB = r.label.match(/(\d+)\s*KB/i);
-    if (mKB) {
-      const size = Number.parseInt(mKB[1], 10) * 1024;
-      lowText = fmtHex(top - size);
-      rule = `${mKB[1]}KB label`;
-    } else if (r.id === 'app0' || r.id === 'app1') {
-      lowText = `~${fmtHex(top - 0x20000)}`;
-      rule = 'APP_SIZE_LIMIT (estimated)';
-    } else if (r.id === 'kernel') {
-      lowText = '0x80200000';
-      rule = 'kernel mapped range (tutorial layout)';
-    } else {
-      lowText = '~unknown';
-      rule = 'not fixed in this visual';
-    }
     const div = document.createElement('div');
     div.className = 'mem-note';
-    div.textContent = `${r.label}: top ${r.addr}, low ${lowText}  [${rule}]`;
+    div.textContent = `${r.label}: ${r.addr} → ${r.lowAddr || '—'}`;
     box.appendChild(div);
   });
+}
+
+// pc 계산 (CODE_PC_BASE 사용)
+function computePC(st) {
+  if (typeof CODE_PC_BASE === 'undefined') return st.mode === 'U' ? st.regs.sepc : null;
+  const frame = activeFrameOf(st);
+  if (frame && frame.code) {
+    const base = CODE_PC_BASE.get(frame.code);
+    if (base != null) return base + frame.curLine * 4;
+  }
+  return st.mode === 'U' ? st.regs.sepc : null;
+}
+
+function activeFrameOf(st) {
+  if (!st || !st.callStack) return null;
+  for (let i = st.callStack.length - 1; i >= 0; i--) {
+    if (st.callStack[i].code) return st.callStack[i];
+  }
+  return null;
 }
 
 // sp value → visual Y (piecewise linear)
 function spToVisualY(sp) {
   const pts = [
-    [0x80286000, 100],[0x80285000, 116],[0x80284EF0, 119],
-    [0x80283000, 152],[0x80282000, 168],[0x80281EF0, 171],
-    [0x80280000, 204],[0x80200000, 250],
+    [0x80286000, 130], [0x80285000, 158], [0x80284EF0, 162],
+    [0x80283000, 234], [0x80282000, 263], [0x80281EF0, 267],
+    [0x80280000, 339], [0x80200000, 459],
   ];
   for (let i = 0; i < pts.length - 1; i++) {
     const [a0,y0] = pts[i], [a1,y1] = pts[i+1];
@@ -394,14 +427,24 @@ const TASK_MOD = [
 ];
 
 // ── callStack helpers ──
-const CS_APP_INT     = {file:'user/bin/00power.rs', done:'    // ← 타이머 인터럽트 발생! 실행 중단 (stvec → __alltraps)'};
-const CS_TRAP_DONE   = {file:'trap.S',       done:'    call trap_handler'};
-const CS_MOD_DONE    = {file:'trap/mod.rs',  done:'    suspend_current_and_run_next()'};
-const CS_SW_DONE     = {file:'task/mod.rs',  done:'    __switch(cur_cx_ptr, next_cx_ptr)'};
-const CS_RET_DONE    = {file:'task/switch.S',done:'    ret  → __restore'};
+const CS_APP_INT   = {file:'user/bin/00power.rs', done:'    // ← 타이머 인터럽트! (stvec → __alltraps)'};
+const CS_TRAP_DONE = {file:'trap.S',        done:'    call trap_handler'};
+const CS_MOD_DONE  = {file:'trap/mod.rs',   done:'    suspend_current_and_run_next()'};
+const CS_SW_DONE   = {file:'task/mod.rs',   done:'    __switch(cur_cx_ptr, next_cx_ptr)'};
+const CS_RET_DONE  = {file:'task/switch.S', done:'    ret  → __restore'};
+
+// ── register state shorthands ──
+// alltraps 진행 중 공통 base (csrrw 이후)
+function rA(extra) { return regs(BASE_REGS, Object.assign({sstatus:0x100,x2:0x80282000,sscratch:0x80283000},extra)); }
+// alltraps: sp 내린 후 (addi 이후)
+function rB(extra) { return regs(BASE_REGS, Object.assign({sstatus:0x100,x2:0x80281EF0,sscratch:0x80283000},extra)); }
+// alltraps: t0/t1/t2 읽은 후
+function rC(extra) { return regs(BASE_REGS, Object.assign({sstatus:0x100,x2:0x80281EF0,sscratch:0x80283000,x5:0x100,x6:0x80400024,x7:0x80283000},extra)); }
+// __restore 진입 직후 base (ret 직후, Task1 컨텍스트)
+function rR(extra) { return regs(TASK1_REGS, Object.assign({sstatus:0x100,x1:0x80203000,x2:0x80284EF0,x10:0x80260000,x11:0x80260050,sscratch:0x80283000},extra)); }
 
 // ── Steps ──
-const STEPS = [
+const STEPS = _expandToLineSteps([
 {
   title:'Task0 유저 모드 실행 중', file:'user/bin/00power.rs', mode:'U', task:0,
   callStack:[{file:'user/bin/00power.rs (main)', code:USER_APP, curLine:12}],
@@ -579,7 +622,7 @@ const STEPS = [
   regs:TASK1_REGS, changed:[],
   memActive:['app1','ustack1']
 }
-];
+]); // _expandToLineSteps
 
 // ── State ──
 let step = 0;
@@ -587,7 +630,8 @@ let step = 0;
 // ── Render memory SVG ──
 function renderMemory(activeSet) {
   const svg = document.getElementById('mem-svg');
-  svg.setAttribute('viewBox', '0 0 260 260');
+  const _lastR = MEM_LAYOUT[MEM_LAYOUT.length - 1];
+  svg.setAttribute('viewBox', `0 0 260 ${_lastR.y + _lastR.h + 30}`);
   svg.innerHTML = '';
   const BAR_X = 60, BAR_W = 120;
 
@@ -643,6 +687,15 @@ function renderMemory(activeSet) {
   }
   zigzag(16);
 
+  // app0 ~ ustack1 사이 zigzag
+  const _app0r = MEM_LAYOUT.find(r => r.id === 'app0');
+  const _stk1r = MEM_LAYOUT.find(r => r.id === 'ustack1');
+  if (_app0r && _stk1r) {
+    const gapY = Math.round(_app0r.y + _app0r.h + (_stk1r.y - _app0r.y - _app0r.h) / 2) - 3;
+    zigzag(gapY);
+    txt(BAR_X + BAR_W + 3, gapY + 7, '···', 'mem-addr', '#4a5568', 'start', '8');
+  }
+
   // ── Main regions ──
   MEM_LAYOUT.forEach(r => {
     const isActive = activeSet.includes(r.id);
@@ -650,20 +703,17 @@ function renderMemory(activeSet) {
          isActive ? '#ffd700' : '#2d3748',
          isActive ? '2' : '0.5', isActive);
 
-    // Label inside bar
-    const fs = r.h > 20 ? '9' : '8';
-    txt(BAR_X + BAR_W/2, r.y + r.h/2 + 3, r.label, 'mem-label', null, 'middle', fs);
-
-    // Address label — right side, top of region only
-    txt(BAR_X + BAR_W + 3, r.y + 6, r.addr, 'mem-addr', isActive?'#ffd700':'#5a6270', 'start', '7.5');
+    const fs = r.h >= 40 ? '10' : r.h >= 22 ? '9' : '8';
+    txt(BAR_X + BAR_W/2, r.y + r.h/2 + 4, r.label, 'mem-label', null, 'middle', fs);
+    txt(BAR_X + BAR_W + 3, r.y + 7, r.addr, 'mem-addr', isActive?'#ffd700':'#5a6270', 'start', '7.5');
+    if (r.lowAddr && r.h >= 22) {
+      txt(BAR_X + BAR_W + 3, r.y + r.h - 2, r.lowAddr, 'mem-addr', '#3d4a5a', 'start', '7');
+    }
   });
 
-  // Gap zigzag between apps and stacks
-  zigzag(88);
-  txt(BAR_X + BAR_W + 3, 91, '···', 'mem-addr', '#4a5568', 'start', '8');
-
-  // Bottom address of Kernel
-  txt(BAR_X + BAR_W + 3, 204+46+5, '→0x80200000', 'mem-addr', '#5a6270', 'start', '7.5');
+  // 커널 하단 경계
+  const _kern = MEM_LAYOUT[MEM_LAYOUT.length - 1];
+  txt(BAR_X + BAR_W + 3, _kern.y + _kern.h + 8, '→0x80200000', 'mem-addr', '#5a6270', 'start', '7.5');
 
   // ── TrapCtx / TaskCtx overlays ──
   Object.entries(TRAP_OVERLAYS).forEach(([id, ov]) => {
@@ -875,54 +925,49 @@ function renderCode(callStack) {
 }
 
 // ── Render CPU state box ──
-function renderCPU(st) {
+// codeSt: 현재 스텝 (mode, task)
+// stateSt: 이전 스텝 (실제 레지스터 값 — 현재 명령 실행 전 상태)
+function renderCPU(codeSt, stateSt) {
   const modeEl = document.getElementById('c-mode');
-  modeEl.textContent = st.mode === 'U' ? 'U-mode (유저)' : 'S-mode (커널)';
-  modeEl.className = 'cpu-val ' + (st.mode === 'U' ? 'u-mode' : 's-mode');
+  modeEl.textContent = codeSt.mode === 'U' ? 'U-mode (유저)' : 'S-mode (커널)';
+  modeEl.className = 'cpu-val ' + (codeSt.mode === 'U' ? 'u-mode' : 's-mode');
 
   const taskEl = document.getElementById('c-task');
-  taskEl.textContent = 'Task' + st.task;
-  taskEl.className = 'cpu-val task' + st.task;
+  taskEl.textContent = 'Task' + codeSt.task;
+  taskEl.className = 'cpu-val task' + codeSt.task;
 
-  document.getElementById('c-pc').textContent = '0x' + st.regs.sepc.toString(16).padStart(8,'0');
+  document.getElementById('c-pc').textContent = '0x' + stateSt.regs.sepc.toString(16).padStart(8,'0');
 
   const scratchEl = document.getElementById('c-scratch');
-  scratchEl.textContent = '0x' + st.regs.sscratch.toString(16).padStart(8,'0');
-  // highlight sscratch if it changed this step
-  scratchEl.style.color = st.changed.includes('sscratch') ? '#f0c040' : '';
+  scratchEl.textContent = '0x' + stateSt.regs.sscratch.toString(16).padStart(8,'0');
+  scratchEl.style.color = stateSt.changed.includes('sscratch') ? '#f0c040' : '';
 }
 
 // ── Main render ──
+// 코드 패널 → STEPS[step]   (지금 이 명령이 실행될 예정)
+// 레지스터/메모리 → STEPS[step-1]  (이 명령 실행 전 상태 = 이전 명령의 결과)
+// Step 0: 초기 상태 그대로 표시
 function render() {
-  const st = STEPS[step];
+  const codeSt  = STEPS[step];
+  const stateSt = step > 0 ? STEPS[step - 1] : STEPS[0];
 
-  // Step bar
   document.getElementById('step-num').textContent = `Step ${step+1} / ${STEPS.length}`;
-  document.getElementById('step-title').textContent = st.title;
-  document.getElementById('step-file').textContent = st.file;
+  document.getElementById('step-title').textContent = codeSt.title;
+  document.getElementById('step-file').textContent = codeSt.file;
 
-  // Code
-  renderCode(st.callStack);
+  renderCode(codeSt.callStack);
 
-  // Description
-  document.getElementById('desc-text').textContent = st.desc;
-  document.getElementById('desc-detail').textContent = st.detail || '';
+  document.getElementById('desc-text').textContent = codeSt.desc;
+  document.getElementById('desc-detail').textContent = codeSt.detail || '';
 
-  // CPU state
-  renderCPU(st);
-
-  // Registers
-  renderRegs(st.regs, st.changed);
+  renderCPU(codeSt, stateSt);
+  renderRegs(stateSt.regs, stateSt.changed);
   renderStackChanges(step);
+  renderMemory(stateSt.memActive);
 
-  // Memory
-  renderMemory(st.memActive);
-
-  // Progress
   const pct = (step / (STEPS.length - 1)) * 100;
   document.getElementById('progress-fill').style.width = pct + '%';
 
-  // Buttons
   document.getElementById('btn-prev').disabled = step === 0;
   document.getElementById('btn-next').disabled = step === STEPS.length - 1;
 }

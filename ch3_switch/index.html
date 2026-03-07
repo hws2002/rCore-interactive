@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>rCore ch3 — Task Switch Visualizer</title>
+<link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+<h1>rCore ch3 — 태스크 전환 인터랙티브 시각화 (타이머 인터럽트 → __alltraps → trap_handler → __switch → __restore)</h1>
+<div id="main">
+
+<!-- COL1: 메모리 다이어그램 + CPU 상태 -->
+<div id="col1">
+  <div id="mem-wrap">
+    <h2>📦 물리 메모리 레이아웃</h2>
+    <div id="mem-svg-container">
+      <svg id="mem-svg" width="100%" style="display:block"></svg>
+    </div>
+    <div id="mem-legend">
+      <div class="leg"><div class="leg-dot" style="background:#3a5a8c"></div>Kernel</div>
+      <div class="leg"><div class="leg-dot" style="background:#2d6a4f"></div>App0</div>
+      <div class="leg"><div class="leg-dot" style="background:#40916c"></div>App1</div>
+      <div class="leg"><div class="leg-dot" style="background:#7b3f00"></div>KStack</div>
+      <div class="leg"><div class="leg-dot" style="background:#6a1e55"></div>UStack</div>
+      <div class="leg"><div class="leg-dot" style="background:#e85d04"></div>TrapCtx</div>
+      <div class="leg"><div class="leg-dot" style="background:#f4c542"></div>TaskCtx</div>
+    </div>
+    <div id="mem-boundary-notes"></div>
+  </div>
+  <div id="cpu-state">
+    <h2>🖥️ CPU 상태</h2>
+    <div class="cpu-row"><span class="cpu-label">Mode</span><span id="c-mode" class="cpu-val">U-mode</span></div>
+    <div class="cpu-row"><span class="cpu-label">현재 태스크</span><span id="c-task" class="cpu-val task0">Task0</span></div>
+    <div class="cpu-row"><span class="cpu-label">PC</span><span id="c-pc-cur" class="cpu-val">—</span></div>
+    <div class="cpu-row"><span class="cpu-label">sepc</span><span id="c-pc" class="cpu-val">0x80400024</span></div>
+    <div class="cpu-row"><span class="cpu-label">sscratch</span><span id="c-scratch" class="cpu-val">0x80282000</span></div>
+  </div>
+</div>
+
+<!-- COL2: 레지스터 파일 + CSR -->
+<div id="col2">
+  <div id="col2-title">🔲 레지스터 파일 (x0–x31)</div>
+  <div id="reg-grid"></div>
+  <div id="csr-section">
+    <div id="csr-label">CSR 레지스터</div>
+    <div id="csr-grid"></div>
+    <div id="stack-change-label">Stack changes (this step)</div>
+    <div id="stack-change-box"></div>
+  </div>
+</div>
+
+<!-- COL3: Steps -->
+<div id="right">
+  <div id="step-bar">
+    <div id="step-num">Step 1 / 46</div>
+    <div id="step-title">Task0 유저 모드 실행 중</div>
+    <div id="step-file">—</div>
+  </div>
+  <div id="code-panel">
+    <div id="code-panel-label">소스 코드</div>
+    <div id="code-lines"></div>
+  </div>
+  <div id="desc-box">
+    <div id="desc-icon">💡</div>
+    <div id="desc-text"></div>
+    <div id="desc-detail"></div>
+  </div>
+  <div id="nav">
+    <button class="nav-btn" id="btn-prev" onclick="go(-1)">◄ Prev</button>
+    <div id="progress-bar"><div id="progress-fill"></div></div>
+    <button class="nav-btn" id="btn-next" onclick="go(1)">Next ►</button>
+  </div>
+</div>
+
+</div>
+<script src="../ch3_switch/data.js"></script>
+<script src="../shared/renderer.js"></script>
+</body>
+</html>

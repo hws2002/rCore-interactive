@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>rCore Interactive Visualizers</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d1117;color:#e6edf3;font-family:'Consolas','Courier New',monospace;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px}
+h1{color:#58a6ff;font-size:22px;margin-bottom:8px;text-align:center;letter-spacing:1px}
+.subtitle{color:#8b949e;font-size:13px;margin-bottom:40px;text-align:center}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;width:100%;max-width:960px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:24px;text-decoration:none;color:inherit;transition:border-color 0.2s,transform 0.15s;display:block}
+.card:hover{border-color:#58a6ff;transform:translateY(-2px)}
+.card-badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:bold;margin-bottom:12px}
+.badge-ch3{background:#1f3460;color:#58a6ff}
+.badge-boot{background:#1f3a2a;color:#3fb950}
+.card h2{font-size:16px;color:#f0f6fc;margin-bottom:8px}
+.card p{font-size:12px;color:#8b949e;line-height:1.6}
+.card .meta{margin-top:12px;font-size:11px;color:#58a6ff}
+.footer{margin-top:48px;color:#484f58;font-size:11px;text-align:center}
+</style>
+</head>
+<body>
+<h1>rCore Interactive Visualizers</h1>
+<p class="subtitle">각 시각화를 클릭하여 실행하세요 — file:// 로컬 실행 지원</p>
+<div class="grid">
+  <a class="card" href="ch3_switch/index.html">
+    <span class="card-badge badge-ch3">ch3</span>
+    <h2>Task Switch</h2>
+    <p>타이머 인터럽트 → __alltraps → trap_handler → __switch → __restore → Task1 실행까지 전 과정을 46스텝으로 세분화하여 시각화.</p>
+    <div class="meta">46 steps · SVG Memory · Register File · Stack Trace</div>
+  </a>
+  <a class="card" href="ch3_load/index.html">
+    <span class="card-badge badge-ch3">ch3</span>
+    <h2>Task Load</h2>
+    <p>부팅 → 앱 로드 → TCB 빌드 → run_first_task 흐름. 물리 메모리 슬롯과 태스크 테이블 변화를 단계별로 확인.</p>
+    <div class="meta">9 steps · Task Table · Kernel State</div>
+  </a>
+  <a class="card" href="boot_chain/index.html">
+    <span class="card-badge badge-boot">boot</span>
+    <h2>Boot Chain</h2>
+    <p>0x1000 펌웨어 → 0x80000000 RustSBI → 0x80200000 커널까지의 bare-metal 부팅 체인 시각화.</p>
+    <div class="meta">7 steps · Address Space Map · CSR State</div>
+  </a>
+</div>
+<div class="footer">rCore-Tutorial v3 기반 · RISC-V RV64GC</div>
+</body>
+</html>
