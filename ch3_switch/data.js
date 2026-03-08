@@ -72,6 +72,8 @@ const TRAP_OVERLAYS = {
 
 function spToVisualY(sp) {
   const pts = [
+    [0x80420000,  23], [0x80400000,  70], [0x803E0000, 115], // app1/app0 .text
+    // gap (zigzag) between app and stack regions
     [0x80286000, 130], [0x80285000, 158], [0x80284EF0, 162],
     [0x80283000, 234], [0x80282000, 263], [0x80281EF0, 267],
     [0x80280000, 339], [0x80200000, 459],
@@ -93,7 +95,7 @@ const BASE_REGS = {
   x11:0, x12:0, x13:0, x14:0, x15:0, x16:0, x17:0,
   x18:0, x19:0, x20:0, x21:0, x22:0, x23:0, x24:0,
   x25:0, x26:0, x27:0, x28:0, x29:0, x30:0, x31:0,
-  sepc:0x80400024, sstatus:0x00000000, sscratch:0x80282000
+  sepc:0x80400024, sstatus:0x00000000, sscratch:0x80282000, scause:0
 };
 const TASK1_REGS = {
   x0:0, x1:0, x2:0x80286000, x3:0, x4:0,
@@ -101,20 +103,24 @@ const TASK1_REGS = {
   x11:0, x12:0, x13:0, x14:0, x15:0, x16:0, x17:0,
   x18:0, x19:0, x20:0, x21:0, x22:0, x23:0, x24:0,
   x25:0, x26:0, x27:0, x28:0, x29:0, x30:0, x31:0,
-  sepc:0x80420000, sstatus:0x00000000, sscratch:0x80285000
+  sepc:0x80420000, sstatus:0x00000000, sscratch:0x80285000, scause:0
 };
 
 function regs(base, changes) { return Object.assign({}, base, changes); }
 
 // Shorthand helpers (all based on BASE_REGS after trap entry)
 // rA: after csrrw (sp=KStack, sscratch=UStack)
-function rA(extra) { return regs(BASE_REGS, Object.assign({sstatus:0x100, x2:0x80282000, sscratch:0x80283000}, extra)); }
+// scause = 0x8000000000000000: MSB=1(인터럽트), 하위비트5(SupervisorTimer)
+// JS Number 정밀도 한계로 하위 5비트 손실 → 0x8000000000000000으로 저장
+const SCAUSE_TIMER = 0x8000000000000000;
+
+function rA(extra) { return regs(BASE_REGS, Object.assign({sstatus:0x100, x2:0x80282000, sscratch:0x80283000, scause:SCAUSE_TIMER}, extra)); }
 // rB: after addi sp,-34*8
-function rB(extra) { return regs(BASE_REGS, Object.assign({sstatus:0x100, x2:0x80281EF0, sscratch:0x80283000}, extra)); }
+function rB(extra) { return regs(BASE_REGS, Object.assign({sstatus:0x100, x2:0x80281EF0, sscratch:0x80283000, scause:SCAUSE_TIMER}, extra)); }
 // rC: after reading CSRs into t0/t1/t2
-function rC(extra) { return regs(BASE_REGS, Object.assign({sstatus:0x100, x2:0x80281EF0, sscratch:0x80283000, x5:0x100, x6:0x80400024, x7:0x80283000}, extra)); }
+function rC(extra) { return regs(BASE_REGS, Object.assign({sstatus:0x100, x2:0x80281EF0, sscratch:0x80283000, x5:0x100, x6:0x80400024, x7:0x80283000, scause:SCAUSE_TIMER}, extra)); }
 // rR: after __switch returns to Task1 context, entering __restore
-function rR(extra) { return regs(TASK1_REGS, Object.assign({sstatus:0x100, x1:0x80203000, x2:0x80284EF0, x10:0x80260000, x11:0x80260050, sscratch:0x80283000}, extra)); }
+function rR(extra) { return regs(TASK1_REGS, Object.assign({sstatus:0x100, x1:0x80203000, x2:0x80284EF0, x10:0x80260000, x11:0x80260050, sscratch:0x80283000, scause:SCAUSE_TIMER}, extra)); }
 
 // ── Code snippets ──
 const USER_APP = [
@@ -262,7 +268,7 @@ const STEPS = _expandToLineSteps([
   callStack:[CS_APP_INT, {file:'trap.S (__alltraps)', code:TRAP_S, curLine:0}],
   desc:'타이머가 만료되어 하드웨어 인터럽트 발생.\nCPU가 소프트웨어 호출 없이 자동으로:\n① sstatus.SPP ← U (이전 모드 기록)\n② sepc ← 0x80400024 (인터럽트된 PC 저장)\n③ PC ← stvec = __alltraps 주소\n④ 특권 모드 → S-mode 전환\n\nstvec는 Direct 모드 → 모든 트랩이 __alltraps로 집중됩니다.',
   detail:'sstatus.SPIE=1(이전 SIE값), sstatus.SIE=0(인터럽트 마스킹). __alltraps 첫 줄이 다음입니다.',
-  regs:regs(BASE_REGS, {sstatus:0x00000100}), changed:['sstatus'],
+  regs:regs(BASE_REGS, {sstatus:0x00000100, scause:SCAUSE_TIMER}), changed:['sstatus','scause'],
   memActive:['kernel','app0']
 },
 

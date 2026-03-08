@@ -53,14 +53,14 @@ function renderMemoryBoundaryNotes() {
 }
 
 // ── Render memory SVG ──
-function renderMemory(activeSet, stateRegs) {
+function renderMemory(activeSet, stateRegs, pcVal) {
   const svg = document.getElementById('mem-svg');
   // viewBox height은 MEM_LAYOUT의 마지막 영역 bottom + 여백으로 결정
   const lastR = MEM_LAYOUT[MEM_LAYOUT.length - 1];
   const svgH  = lastR.y + lastR.h + 30;
-  svg.setAttribute('viewBox', `0 0 260 ${svgH}`);
+  svg.setAttribute('viewBox', `0 0 360 ${svgH}`);
   svg.innerHTML = '';
-  const BAR_X = 60, BAR_W = 120;
+  const BAR_X = 120, BAR_W = 120;
 
   function el(tag) { return document.createElementNS('http://www.w3.org/2000/svg', tag); }
   function txt(x, y, content, cls, fill, anchor, fs) {
@@ -93,6 +93,15 @@ function renderMemory(activeSet, stateRegs) {
     </marker>
     <marker id="arr-sc" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
       <path d="M0,0 L0,6 L6,3 z" fill="#00bcd4"/>
+    </marker>
+    <marker id="arr-pc" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#a78bfa"/>
+    </marker>
+    <marker id="arr-a0" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#f97316"/>
+    </marker>
+    <marker id="arr-a1" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L6,3 z" fill="#4ade80"/>
     </marker>`;
   svg.appendChild(defs);
 
@@ -143,24 +152,64 @@ function renderMemory(activeSet, stateRegs) {
     if (!activeSet.includes(id)) return;
     const parent = MEM_LAYOUT.find(r => r.id === ov.parent);
     if (!parent) return;
-    rect(BAR_X, parent.y, BAR_W, ov.h, ov.color, '#fff', '1.5', true);
+
+    const writes  = getStepMemWrites();
+    const MAX     = 5;
+    const showW   = writes.slice(0, MAX);
+    const extraW  = writes.length - MAX;
+    const ENTRY_H = 9;
+    const extraH  = showW.length > 0
+      ? showW.length * ENTRY_H + (extraW > 0 ? ENTRY_H : 0) + 4
+      : 0;
+    const totalH  = ov.h + extraH;
+
+    rect(BAR_X, parent.y, BAR_W, totalH, ov.color, '#fff', '1.5', true);
     txt(BAR_X + BAR_W/2, parent.y + ov.h/2 + 3, ov.label, 'mem-label', '#fff', 'middle', '9');
+
+    // 저장된 값 목록
+    showW.forEach((w, i) => {
+      const yy   = parent.y + ov.h + 2 + (i + 1) * ENTRY_H;
+      const addr = (w.addr >>> 0).toString(16).toUpperCase().padStart(8, '0');
+      const val  = (w.val  >>> 0).toString(16).toUpperCase().padStart(8, '0');
+      txt(BAR_X + 3, yy, `${addr}: ${val}  (${w.lbl})`, null, '#ffe9a0', 'start', '6');
+    });
+    if (extraW > 0) {
+      const yy = parent.y + ov.h + 2 + (showW.length + 1) * ENTRY_H;
+      txt(BAR_X + 3, yy, `+${extraW} more…`, null, '#ffb74d', 'start', '5.5');
+    }
   });
 
-  function drawArrow(y, x1, label, color, markerId) {
+  // addrHex: 화살표 아래에 표시할 주소 문자열 (옵션)
+  function drawArrow(y, x1, label, color, markerId, addrHex) {
     const line = el('line');
     line.setAttribute('x1', x1); line.setAttribute('x2', BAR_X - 2);
     line.setAttribute('y1', y);  line.setAttribute('y2', y);
     line.setAttribute('stroke', color); line.setAttribute('stroke-width', '1.5');
     line.setAttribute('marker-end', 'url(#' + markerId + ')');
     svg.appendChild(line);
-    txt(x1 - 2, y + 3, label, 'mem-addr', color, 'end', '9');
+    txt(x1 - 2, y - 1, label, 'mem-addr', color, 'end', '9');
+    if (addrHex) txt(x1 - 2, y + 8, addrHex, 'mem-addr', color, 'end', '6.5');
   }
 
   const spY = spToVisualY(stateRegs.x2);
-  if (spY !== null) drawArrow(spY, 44, 'sp', '#d29922', 'arr-sp');
+  if (spY !== null) drawArrow(spY, 85, 'sp', '#d29922', 'arr-sp', hex32(stateRegs.x2));
   const scY = spToVisualY(stateRegs.sscratch);
-  if (scY !== null) drawArrow(scY, 26, 'sc', '#00bcd4', 'arr-sc');
+  if (scY !== null) drawArrow(scY, 55, 'sc', '#00bcd4', 'arr-sc', hex32(stateRegs.sscratch));
+
+  // PC 화살표 — 50% 길이 (x1=60: tip=118, half=59, x1=118-59=59)
+  if (pcVal != null) {
+    const pcY = spToVisualY(pcVal);
+    if (pcY !== null) drawArrow(pcY, 60, 'PC', '#a78bfa', 'arr-pc', hex32(pcVal));
+  }
+
+  // a0/a1 화살표 — __switch / taskctx 활성 스텝에서만 표시
+  if (activeSet.includes('taskctx')) {
+    const a0Y = spToVisualY(stateRegs.x10);
+    if (a0Y !== null) drawArrow(a0Y, 65, 'a0', '#f97316', 'arr-a0', hex32(stateRegs.x10));
+    const a1Y = spToVisualY(stateRegs.x11);
+    if (a1Y !== null) drawArrow(a1Y, 75, 'a1', '#4ade80', 'arr-a1', hex32(stateRegs.x11));
+  }
+
   renderMemoryBoundaryNotes();
 }
 
@@ -179,14 +228,58 @@ function renderRegs(regs, changed) {
   }
   const csrGrid = document.getElementById('csr-grid');
   csrGrid.innerHTML = '';
-  [['sepc','sepc'],['sstatus','sstatus'],['sscratch','sscratch']].forEach(([k, label]) => {
+  [['sepc','sepc'],['sstatus','sstatus'],['scause','scause'],['sscratch','sscratch']].forEach(([k, label]) => {
     const val = regs[k] || 0;
     const isChanged = changed.includes(k);
     const cell = document.createElement('div');
     cell.className = 'csr-cell' + (isChanged ? ' changed' : '');
-    cell.innerHTML = `<span class="csr-name">${label}${isChanged ? '★' : ''}</span><span class="csr-val">0x${val.toString(16).padStart(8,'0')}</span>`;
+    const padLen = k === 'scause' ? 16 : 8;
+    cell.innerHTML = `<span class="csr-name">${label}${isChanged ? '★' : ''}</span><span class="csr-val">0x${val.toString(16).padStart(padLen,'0')}</span>`;
     csrGrid.appendChild(cell);
   });
+}
+
+// ── 현재 스텝의 메모리 쓰기 항목 계산 ──
+// 현재 하이라이트된 명령이 sd/store 계열이면 저장될 (주소, 값, 레이블) 반환.
+// 값은 stateSt.regs(실행 전 상태)에서 가져옴.
+function getStepMemWrites() {
+  if (step <= 0) return [];
+  const cur  = STEPS[step];
+  const prev = STEPS[step - 1]; // stateSt — 실행 전 레지스터 상태
+  const curF = activeFrameOf(cur);
+  if (!curF || curF.curLine == null || !curF.code) return [];
+
+  const line = (curF.code[curF.curLine] && curF.code[curF.curLine].t.trim()) || '';
+  const r  = prev.regs || {};
+  const sp = r.x2  || 0;
+  const a0 = r.x10 || 0;
+  const entries = [];
+
+  // ── trap.S: TrapContext 저장 ──
+  if (/sd x1,\s*1\*8\(sp\)/.test(line))
+    entries.push({addr: sp+8,   val: r.x1,       lbl: 'x1/ra'});
+  if (/sd x3,\s*3\*8\(sp\)/.test(line))
+    entries.push({addr: sp+24,  val: r.x3,       lbl: 'x3/gp'});
+  if (/\bSAVE_GP\b/.test(line))
+    for (let n = 5; n <= 31; n++)
+      entries.push({addr: sp+n*8, val: r['x'+n]||0, lbl: 'x'+n});
+  if (/sd t0,\s*32\*8\(sp\)/.test(line))
+    entries.push({addr: sp+256, val: r.sstatus||0, lbl: 'sstatus'});
+  if (/sd t1,\s*33\*8\(sp\)/.test(line))
+    entries.push({addr: sp+264, val: r.sepc||0,    lbl: 'sepc'});
+  if (/sd t2,\s*2\*8\(sp\)/.test(line))
+    entries.push({addr: sp+16,  val: r.x7||0,      lbl: 'user_sp(t2)'});
+
+  // ── switch.S: TaskContext 저장 ──
+  if (/sd ra,\s*0\(a0\)/.test(line))
+    entries.push({addr: a0,    val: r.x1||0, lbl: 'ra'});
+  if (/sd sp,\s*8\(a0\)/.test(line))
+    entries.push({addr: a0+8,  val: r.x2||0, lbl: 'sp'});
+  if (/\bSAVE_SN\b/.test(line))
+    [8,9,18,19,20,21,22,23,24,25,26,27].forEach((xn, n) =>
+      entries.push({addr: a0+16+n*8, val: r['x'+xn]||0, lbl: 's'+n}));
+
+  return entries;
 }
 
 // ── Stack changes panel ──
@@ -305,7 +398,7 @@ function renderCode(callStack) {
 // ── Render CPU state ──
 // codeSt: 현재 스텝 (mode, task, PC 계산)
 // stateSt: 이전 스텝 (sepc, sscratch 값 표시)
-function renderCPU(codeSt, stateSt) {
+function renderCPU(codeSt, stateSt, pcVal) {
   const modeEl = document.getElementById('c-mode');
   modeEl.textContent = codeSt.mode === 'U' ? 'U-mode (유저)' : 'S-mode (커널)';
   modeEl.className = 'cpu-val ' + (codeSt.mode === 'U' ? 'u-mode' : 's-mode');
@@ -317,7 +410,6 @@ function renderCPU(codeSt, stateSt) {
   // PC: 현재 실행 중인 명령 주소
   const pcEl = document.getElementById('c-pc-cur');
   if (pcEl) {
-    const pcVal = computePC(codeSt);
     pcEl.textContent = pcVal != null ? '0x' + pcVal.toString(16).padStart(8, '0') : '—';
   }
 
@@ -345,10 +437,11 @@ function render() {
   document.getElementById('desc-text').textContent   = codeSt.desc;
   document.getElementById('desc-detail').textContent = codeSt.detail || '';
 
-  renderCPU(codeSt, stateSt);
+  const pcVal = computePC(codeSt);
+  renderCPU(codeSt, stateSt, pcVal);
   renderRegs(stateSt.regs, stateSt.changed);
   renderStackChanges(step);
-  renderMemory(stateSt.memActive, stateSt.regs);
+  renderMemory(stateSt.memActive, stateSt.regs, pcVal);
 
   const pct = (step / (STEPS.length - 1)) * 100;
   document.getElementById('progress-fill').style.width = pct + '%';
