@@ -15,6 +15,7 @@ h1{color:#58a6ff;font-size:22px;margin-bottom:8px;text-align:center;letter-spaci
 .badge-ch3{background:#1f3460;color:#58a6ff}
 .badge-boot{background:#1f3a2a;color:#3fb950}
 .badge-ch1{background:#3a1f60;color:#c080ff}
+.badge-ch2{background:#1f3a20;color:#3fd860}
 .card h2{font-size:16px;color:#f0f6fc;margin-bottom:8px}
 .card p{font-size:12px;color:#8b949e;line-height:1.6}
 .card .meta{margin-top:12px;font-size:11px;color:#58a6ff}
@@ -30,6 +31,12 @@ h1{color:#58a6ff;font-size:22px;margin-bottom:8px;text-align:center;letter-spaci
     <h2>应用程序与基本执行环境</h2>
     <p>cargo build → linker.ld 배치 → QEMU 부팅 → RustSBI → 커널 → shutdown까지 빌드타임·런타임 전 흐름.</p>
     <div class="meta">① Memory Layout · ② Bare Metal Boot · ③ SBI Shutdown</div>
+  </a>
+  <a class="card" href="ch2/index.html">
+    <span class="card-badge badge-ch2">ch2</span>
+    <h2>批处理系统</h2>
+    <p>run_next_app → __restore → U-mode → ecall → __alltraps → trap_handler → 경로 A/B 분기까지 전 흐름.</p>
+    <div class="meta">① Trap 흐름 (18 steps) · ② 경로 A/B 분기 (8 steps)</div>
   </a>
   <a class="card" href="ch3/index.html">
     <span class="card-badge badge-ch3">ch3</span>

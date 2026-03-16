@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>rCore ch2 — Trap 처리 흐름</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Consolas,'Courier New',monospace;background:#0c1220;color:#e6edf3;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+h1{font-size:13px;color:#9fc3ff;background:#151c2f;border-bottom:1px solid #2a3552;padding:7px 12px;flex-shrink:0}
+#main{flex:1;display:grid;grid-template-columns:50% 50%;min-height:0;overflow:hidden}
+
+/* ─── LEFT ─── */
+#left{background:#0b1020;border-right:1px solid #2a3552;display:flex;flex-direction:column;overflow:hidden}
+#stack-wrap{flex:0 0 auto;padding:8px 8px 4px}
+#stack-wrap h2{font-size:10px;color:#7fb1ff;margin-bottom:4px;letter-spacing:.5px}
+#stack-svg-wrap{width:100%;overflow:visible}
+#regs-wrap{flex:1;padding:6px 8px 8px;overflow-y:auto;min-height:0}
+#regs-wrap h2{font-size:10px;color:#7fb1ff;margin-bottom:5px;letter-spacing:.5px}
+#reg-table{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.rv{display:flex;justify-content:space-between;align-items:center;border:1px solid #1f2d44;border-radius:4px;padding:5px 9px;background:#0f182b;font-size:11.5px}
+.rv.hi{border-color:#ffd166;background:#251f0a}
+.rk{color:#7fa8d5;min-width:55px}
+.rvv{color:#e8f0ff;text-align:right;font-size:11px}
+
+/* ─── RIGHT ─── */
+#right{display:flex;flex-direction:column;padding:8px;gap:7px;overflow:hidden;background:#0e1528}
+#step-bar{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:7px 10px;flex-shrink:0}
+#step-row{display:flex;align-items:baseline;gap:8px}
+#step-num{font-size:11px;color:#7fb1ff;font-weight:bold;min-width:75px}
+#step-title{font-size:13px;font-weight:bold;color:#f0f6fc}
+#step-file{font-size:10px;color:#7a90b5;margin-top:2px}
+#nav{display:flex;gap:8px;align-items:center;margin-top:6px}
+button{background:#1b2740;border:1px solid #2a3552;color:#d8e6ff;padding:4px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:inherit}
+button:hover:not(:disabled){border-color:#58a6ff;color:#9fc3ff}
+button:disabled{opacity:.35;cursor:not-allowed}
+#prog-bar{flex:1;height:5px;background:#1c2842;border-radius:3px;overflow:hidden}
+#prog-fill{height:100%;width:0;background:linear-gradient(90deg,#3f7dff,#7fb1ff);transition:width .2s}
+#phase-badge{font-size:9px;padding:2px 8px;border-radius:8px;font-weight:bold;background:#1a2a10;color:#6abf40;border:1px solid #2a5018}
+
+#code-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:7px;flex:0 0 auto;max-height:200px;overflow:hidden;display:flex;flex-direction:column}
+#code-label{font-size:10px;color:#7fb1ff;margin-bottom:4px}
+#code-lines{font-size:11.5px;line-height:1.5;white-space:pre;overflow-y:auto;flex:1}
+.cl{display:block;padding:0 2px}
+.cl.hl{background:#352c0a;color:#ffd166;border-radius:2px}
+.cl.done{color:#3a4a60}
+
+#desc-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:8px 10px;flex:1;overflow-y:auto}
+#desc-title{font-size:11px;color:#ffd166;margin-bottom:5px}
+#desc-text{font-size:12px;color:#c8d8f0;line-height:1.6;white-space:pre-wrap}
+#desc-detail{font-size:10.5px;color:#5a7aaa;margin-top:6px;padding-top:6px;border-top:1px solid #1f2d44;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>rCore ch2 — Trap 처리: run_next_app → __restore → U-mode → ecall → __alltraps → trap_handler → __restore</h1>
+<div id="main">
+
+<!-- LEFT: 스택 다이어그램 + 레지스터 -->
+<div id="left">
+  <div id="stack-wrap">
+    <h2>KERNEL / USER STACK</h2>
+    <div id="stack-svg-wrap">
+      <svg id="stack-svg" width="100%" viewBox="0 0 270 260" style="display:block"></svg>
+    </div>
+  </div>
+  <div id="regs-wrap">
+    <h2>CPU STATE</h2>
+    <div id="reg-table"></div>
+  </div>
+</div>
+
+<!-- RIGHT: 스텝 정보 + 코드 + 설명 -->
+<div id="right">
+  <div id="step-bar">
+    <div id="step-row">
+      <span id="step-num">Step 1 / 18</span>
+      <span id="step-title">—</span>
+    </div>
+    <div id="step-file">—</div>
+    <div id="nav">
+      <button id="btn-prev-page" style="display:none;background:#1f2a50;border-color:#5888ff;color:#80b0ff;font-weight:bold">← ch2</button>
+      <button id="btn-prev" onclick="go(-1)">◄ Prev</button>
+      <div id="prog-bar"><div id="prog-fill"></div></div>
+      <span id="phase-badge">INIT</span>
+      <button id="btn-next" onclick="go(1)">Next ►</button>
+      <button id="btn-next-page" style="display:none;background:#1f2a50;border-color:#5888ff;color:#80b0ff;font-weight:bold">경로 A/B →</button>
+    </div>
+  </div>
+
+  <div id="code-wrap">
+    <div id="code-label">소스 코드</div>
+    <div id="code-lines"></div>
+  </div>
+
+  <div id="desc-wrap">
+    <div id="desc-title">💡 설명</div>
+    <div id="desc-text"></div>
+    <div id="desc-detail"></div>
+  </div>
+</div>
+
+</div><!-- #main -->
+
+<script src="data.js"></script>
+<script>
+// ── SVG 상수 ──
+const BAR_X  = 100;  // 스택 바 왼쪽 X
+const BAR_W  = 85;   // 스택 바 폭
+const ARR_X1 = 42;   // sp/ss 화살표 시작 X
+const ARR_X2 = BAR_X - 3; // 화살표 끝 X
+
+// 커널 스택 Y 좌표 (높은 주소 = 위쪽)
+const KS_TOP   = 15;   // kernel_stack_top 경계
+const TCX_H    = 55;   // TrapContext 블록 높이 (272 bytes)
+const TCX_BOT  = KS_TOP + TCX_H;  // TrapContext 하단 = tcx_start
+const KS_BOT   = 120;  // kernel_stack_lower_bound
+
+// 갭
+const GAP_Y1 = 132, GAP_Y2 = 148;
+
+// 유저 스택 Y 좌표
+const US_TOP   = 158;  // user_stack_top
+const US_BOT   = 215;  // user_stack_lower_bound
+
+// sp 위치 → Y 매핑
+function spToY(sp) {
+  if (sp === 'ks_top')   return KS_TOP;
+  if (sp === 'tcx_bot')  return TCX_BOT;
+  if (sp === 'us_top')   return US_TOP;
+  if (sp === 'user_run') return US_TOP + 20;
+  return null;
+}
+
+function ssToY(ss) {
+  if (ss === 'ks_top')   return KS_TOP;
+  if (ss === 'us_top')   return US_TOP;
+  return null;
+}
+
+// 전역 상태
+let step = 0;
+
+// ── SVG 렌더링 ──
+function renderSVG(svgState) {
+  const svg = document.getElementById('stack-svg');
+  const { tcx, sp, ss, mode, tcxVals, tcxHL } = svgState;
+  let html = '';
+
+  // 마커
+  html += `<defs>
+    <marker id="arr-sp" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#a78bfa"/>
+    </marker>
+    <marker id="arr-ss" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#ffa040"/>
+    </marker>
+  </defs>`;
+
+  // 커널 스택 바 (배경)
+  const ksColor = mode === 'U' ? '#0f1828' : '#0f1e2a';
+  html += `<rect x="${BAR_X}" y="${KS_TOP}" width="${BAR_W}" height="${KS_BOT - KS_TOP}"
+    fill="${ksColor}" stroke="#2a4060" stroke-width="1" rx="2"/>`;
+  html += `<text x="${BAR_X + BAR_W/2}" y="${(KS_TOP + KS_BOT)/2 + 4}"
+    fill="#2a4060" font-size="9" text-anchor="middle" font-family="Consolas,monospace">KERNEL STACK</text>`;
+
+  // TrapContext 블록 (조건부)
+  if (tcx) {
+    const hlColor = svgState.phase === 'alltraps' ? '#1a3a1a' : '#1a2a3a';
+    html += `<rect x="${BAR_X}" y="${KS_TOP}" width="${BAR_W}" height="${TCX_H}"
+      fill="${hlColor}" stroke="#4a7a8a" stroke-width="1.5" rx="2"/>`;
+    html += `<text x="${BAR_X + BAR_W/2}" y="${KS_TOP + 9}"
+      fill="#7ac8d8" font-size="8.5" text-anchor="middle" font-family="Consolas,monospace" font-weight="bold">TrapContext</text>`;
+
+    // 필드 표시 (5개)
+    const fields = [
+      ['sepc',    tcxVals.sepc  || '─'],
+      ['sstatus', tcxVals.sstatus || '─'],
+      ['x[2]',   tcxVals.x2    || '─'],
+      ['x[10]',  tcxVals.x10   || '─'],
+      ['x[17]',  tcxVals.x17   || '─'],
+    ];
+    const fieldH = (TCX_H - 14) / fields.length;
+    fields.forEach(([name, val], i) => {
+      const fy = KS_TOP + 14 + i * fieldH;
+      const isHL = tcxHL && (tcxHL.includes(name) ||
+        (name==='x[2]' && tcxHL.includes('x2')) ||
+        (name==='x[10]' && tcxHL.includes('x10')));
+      if (isHL) {
+        html += `<rect x="${BAR_X+2}" y="${fy}" width="${BAR_W-4}" height="${fieldH-1}"
+          fill="#352c0a" rx="1"/>`;
+      }
+      const fc = isHL ? '#ffd166' : '#4a7090';
+      const vc = isHL ? '#ffd166' : '#6a90b0';
+      html += `<text x="${BAR_X+6}" y="${fy+fieldH-3}" fill="${fc}"
+        font-size="7.5" font-family="Consolas,monospace">${name}:</text>`;
+      html += `<text x="${BAR_X+BAR_W-3}" y="${fy+fieldH-3}" fill="${vc}"
+        font-size="7" text-anchor="end" font-family="Consolas,monospace">${val}</text>`;
+    });
+  }
+
+  // 커널 스택 경계선 + 주소
+  const LBL_X = BAR_X + BAR_W + 5;
+  html += `<line x1="${BAR_X}" y1="${KS_TOP}" x2="${BAR_X+BAR_W}" y2="${KS_TOP}" stroke="#3a5070" stroke-width="1"/>`;
+  html += `<text x="${LBL_X}" y="${KS_TOP - 2}" fill="#5a80a5" font-size="7.5" font-family="Consolas,monospace">0x80282000</text>`;
+  html += `<line x1="${BAR_X}" y1="${KS_BOT}" x2="${BAR_X+BAR_W}" y2="${KS_BOT}" stroke="#2a3552" stroke-width="0.8"/>`;
+  html += `<text x="${LBL_X}" y="${KS_BOT + 9}" fill="#3a5070" font-size="7.5" font-family="Consolas,monospace">0x80280000</text>`;
+  if (tcx) {
+    html += `<line x1="${BAR_X}" y1="${TCX_BOT}" x2="${BAR_X+BAR_W}" y2="${TCX_BOT}" stroke="#4a7a8a" stroke-width="0.8" stroke-dasharray="3,2"/>`;
+    html += `<text x="${LBL_X}" y="${TCX_BOT + 9}" fill="#4a7a8a" font-size="7.5" font-family="Consolas,monospace">tcx_start</text>`;
+  }
+
+  // 갭 (지그재그)
+  html += `<polyline points="
+    ${BAR_X},${GAP_Y1}
+    ${BAR_X+BAR_W*0.25},${GAP_Y1-4}
+    ${BAR_X+BAR_W*0.5},${GAP_Y1+4}
+    ${BAR_X+BAR_W*0.75},${GAP_Y1-4}
+    ${BAR_X+BAR_W},${GAP_Y1}"
+    fill="none" stroke="#2a3552" stroke-width="1" stroke-dasharray="3,2"/>`;
+  html += `<polyline points="
+    ${BAR_X},${GAP_Y2}
+    ${BAR_X+BAR_W*0.25},${GAP_Y2-4}
+    ${BAR_X+BAR_W*0.5},${GAP_Y2+4}
+    ${BAR_X+BAR_W*0.75},${GAP_Y2-4}
+    ${BAR_X+BAR_W},${GAP_Y2}"
+    fill="none" stroke="#2a3552" stroke-width="1" stroke-dasharray="3,2"/>`;
+  html += `<rect x="${BAR_X}" y="${GAP_Y1}" width="${BAR_W}" height="${GAP_Y2-GAP_Y1}" fill="#0c1220"/>`;
+  html += `<text x="${BAR_X+BAR_W/2}" y="${(GAP_Y1+GAP_Y2)/2+4}"
+    fill="#2a3a50" font-size="8" text-anchor="middle" font-family="Consolas,monospace">⋯</text>`;
+
+  // 유저 스택 바
+  const usActive = mode === 'U' || sp === 'us_top';
+  const usOpacity = usActive ? 1 : 0.4;
+  html += `<rect x="${BAR_X}" y="${US_TOP}" width="${BAR_W}" height="${US_BOT - US_TOP}"
+    fill="#1a1a3a" fill-opacity="${usOpacity}" stroke="#3a3a7a" stroke-width="1" stroke-opacity="${usOpacity}" rx="2"/>`;
+  html += `<text x="${BAR_X + BAR_W/2}" y="${(US_TOP + US_BOT)/2 + 4}"
+    fill="#4a4a8a" fill-opacity="${usOpacity}" font-size="9" text-anchor="middle" font-family="Consolas,monospace">USER STACK</text>`;
+  html += `<line x1="${BAR_X}" y1="${US_TOP}" x2="${BAR_X+BAR_W}" y2="${US_TOP}" stroke="#4a4a8a" stroke-width="1" stroke-opacity="${usOpacity}"/>`;
+  html += `<text x="${LBL_X}" y="${US_TOP - 2}" fill="#4a4a8a" fill-opacity="${usOpacity}" font-size="7.5" font-family="Consolas,monospace">0x80412000</text>`;
+  html += `<line x1="${BAR_X}" y1="${US_BOT}" x2="${BAR_X+BAR_W}" y2="${US_BOT}" stroke="#2a2a5a" stroke-width="0.8" stroke-opacity="${usOpacity}"/>`;
+  html += `<text x="${LBL_X}" y="${US_BOT + 9}" fill="#3a3a60" fill-opacity="${usOpacity}" font-size="7.5" font-family="Consolas,monospace">0x80410000</text>`;
+
+  // sp 화살표
+  const spY = spToY(sp);
+  if (spY !== null) {
+    html += `<line x1="${ARR_X1}" y1="${spY}" x2="${ARR_X2}" y2="${spY}"
+      stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arr-sp)"/>`;
+    html += `<text x="${ARR_X1 - 2}" y="${spY - 3}" fill="#a78bfa" font-size="9"
+      text-anchor="end" font-family="Consolas,monospace" font-weight="bold">sp</text>`;
+  }
+
+  // sscratch 화살표 (반대편, 오른쪽에서 왼쪽으로) or 레이블
+  const ssY = ssToY(ss);
+  if (ssY !== null) {
+    const ss_x1 = BAR_X + BAR_W + 3;
+    const ss_x2 = BAR_X + BAR_W + 38;
+    html += `<line x1="${ss_x1}" y1="${ssY}" x2="${ss_x2}" y2="${ssY}"
+      stroke="#ffa040" stroke-width="1.2" stroke-dasharray="4,2"/>`;
+    html += `<text x="${ss_x2 + 2}" y="${ssY + 4}" fill="#ffa040" font-size="8"
+      text-anchor="start" font-family="Consolas,monospace">sscratch</text>`;
+  }
+
+  // 모드 배지
+  const modeColors = { S:'#1e3f7a', U:'#1a4a2a', trap:'#4a2020' };
+  const modeText   = { S:'S-mode', U:'U-mode', trap:'trap!' };
+  const modeTC     = { S:'#80c0ff', U:'#7dffba', trap:'#ff8080' };
+  const mc = modeColors[mode] || '#2a2a2a';
+  const mt = modeText[mode] || mode;
+  const mtc = modeTC[mode] || '#ccc';
+  html += `<rect x="4" y="230" width="60" height="18" rx="4" fill="${mc}" stroke="${mtc}" stroke-width="1"/>`;
+  html += `<text x="34" y="242" fill="${mtc}" font-size="9" text-anchor="middle" font-family="Consolas,monospace" font-weight="bold">${mt}</text>`;
+
+  // 방향 라벨
+  html += `<text x="4" y="13" fill="#2a3552" font-size="8" font-family="Consolas,monospace">↑ HIGH</text>`;
+  html += `<text x="4" y="226" fill="#2a3552" font-size="8" font-family="Consolas,monospace">↓ LOW</text>`;
+
+  svg.innerHTML = html;
+}
+
+// ── 레지스터 패널 ──
+const REG_KEYS = [
+  ['sp',       'sp'],
+  ['sscratch', 'ss'],
+  ['sepc',     'sepc'],
+  ['scause',   'scause'],
+  ['mode',     'mode'],
+];
+
+function renderRegs(regs) {
+  const el = document.getElementById('reg-table');
+  let html = '';
+  REG_KEYS.forEach(([label, key]) => {
+    const val = regs[key] !== undefined ? regs[key] : '─';
+    html += `<div class="rv"><span class="rk">${label}</span><span class="rvv">${val}</span></div>`;
+  });
+  el.innerHTML = html;
+}
+
+// ── 코드 패널 ──
+function renderCode(code, curLine) {
+  const el = document.getElementById('code-lines');
+  let html = '';
+  code.forEach((t, i) => {
+    let cls = 'cl';
+    if (i < curLine) cls += ' done';
+    if (i === curLine) cls += ' hl';
+    const ln = String(i + 1).padStart(2, ' ');
+    html += `<span class="${cls}">${ln}  ${t}</span>\n`;
+  });
+  el.innerHTML = html;
+  const lines = el.querySelectorAll('.cl');
+  if (lines[curLine]) lines[curLine].scrollIntoView({ block: 'nearest' });
+}
+
+// ── 페이즈 배지 ──
+const PHASE_LABELS = {
+  init:     { text: 'INIT',       bg: '#1a3010', color: '#6abf40', border: '#2a5018' },
+  restore:  { text: 'RESTORE',    bg: '#0f1e35', color: '#4a90e2', border: '#1a3050' },
+  user:     { text: 'U-MODE',     bg: '#1a3a1a', color: '#3fb950', border: '#2a5a2a' },
+  alltraps: { text: 'ALLTRAPS',   bg: '#3a1f10', color: '#ff9040', border: '#5a3020' },
+  handler:  { text: 'HANDLER',    bg: '#2a1a30', color: '#c080ff', border: '#3a2a50' },
+};
+
+function renderPhaseBadge(phase) {
+  const el = document.getElementById('phase-badge');
+  const p = PHASE_LABELS[phase] || PHASE_LABELS.init;
+  el.textContent = p.text;
+  el.style.background = p.bg;
+  el.style.color = p.color;
+  el.style.borderColor = p.border;
+}
+
+// ── 전체 렌더 ──
+function render() {
+  const st = STEPS[step];
+
+  document.getElementById('step-num').textContent = `Step ${step + 1} / ${STEPS.length}`;
+  document.getElementById('step-title').textContent = st.title;
+  document.getElementById('step-file').textContent = st.file;
+  document.getElementById('prog-fill').style.width = `${(step / (STEPS.length - 1)) * 100}%`;
+  document.getElementById('btn-prev').disabled = step === 0;
+  document.getElementById('btn-next').disabled = step === STEPS.length - 1;
+
+  // prev page 버튼 (첫 스텝)
+  const prevBtn = document.getElementById('btn-prev-page');
+  prevBtn.style.display = step === 0 ? 'inline-block' : 'none';
+  if (step === 0) prevBtn.onclick = () => location.href = '../index.html';
+
+  // next page 버튼 (마지막 스텝)
+  const nextBtn = document.getElementById('btn-next-page');
+  nextBtn.style.display = step === STEPS.length - 1 ? 'inline-block' : 'none';
+  if (step === STEPS.length - 1) nextBtn.onclick = () => location.href = '../batch/index.html';
+
+  renderCode(st.code, st.line);
+  renderSVG(st.svg);
+  renderRegs(st.regs);
+  renderPhaseBadge(st.svg.phase);
+
+  document.getElementById('desc-text').textContent = st.desc;
+  document.getElementById('desc-detail').textContent = st.detail || '';
+}
+
+function go(d) {
+  step = Math.max(0, Math.min(STEPS.length - 1, step + d));
+  render();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') go(1);
+  if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   go(-1);
+});
+
+render();
+</script>
+</body>
+</html>

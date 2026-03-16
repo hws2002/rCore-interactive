@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>rCore ch2 — Batch 경로 분기</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Consolas,'Courier New',monospace;background:#0c1220;color:#e6edf3;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+h1{font-size:13px;color:#9fc3ff;background:#151c2f;border-bottom:1px solid #2a3552;padding:7px 12px;flex-shrink:0}
+#main{flex:1;display:grid;grid-template-columns:50% 50%;min-height:0;overflow:hidden}
+
+/* ─── LEFT ─── */
+#left{background:#0b1020;border-right:1px solid #2a3552;display:flex;flex-direction:column;overflow:hidden;padding:10px}
+#left h2{font-size:10px;color:#7fb1ff;margin-bottom:8px;letter-spacing:.5px}
+#branch-svg-wrap{flex:1;overflow:hidden}
+
+/* ─── RIGHT ─── */
+#right{display:flex;flex-direction:column;padding:8px;gap:7px;overflow:hidden;background:#0e1528}
+#step-bar{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:7px 10px;flex-shrink:0}
+#step-row{display:flex;align-items:baseline;gap:8px}
+#step-num{font-size:11px;color:#7fb1ff;font-weight:bold;min-width:75px}
+#step-title{font-size:13px;font-weight:bold;color:#f0f6fc}
+#step-file{font-size:10px;color:#7a90b5;margin-top:2px}
+#nav{display:flex;gap:8px;align-items:center;margin-top:6px}
+button{background:#1b2740;border:1px solid #2a3552;color:#d8e6ff;padding:4px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:inherit}
+button:hover:not(:disabled){border-color:#58a6ff;color:#9fc3ff}
+button:disabled{opacity:.35;cursor:not-allowed}
+#prog-bar{flex:1;height:5px;background:#1c2842;border-radius:3px;overflow:hidden}
+#prog-fill{height:100%;width:0;background:linear-gradient(90deg,#3f7dff,#7fb1ff);transition:width .2s}
+#path-badge{font-size:9px;padding:2px 10px;border-radius:8px;font-weight:bold;border:1px solid #2a3552;color:#8b949e}
+
+#code-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:7px;flex:0 0 auto;max-height:220px;overflow:hidden;display:flex;flex-direction:column}
+#code-label{font-size:10px;color:#7fb1ff;margin-bottom:4px}
+#code-lines{font-size:11.5px;line-height:1.5;white-space:pre;overflow-y:auto;flex:1}
+.cl{display:block;padding:0 2px}
+.cl.hl{background:#352c0a;color:#ffd166;border-radius:2px}
+.cl.done{color:#3a4a60}
+
+#desc-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:8px 10px;flex:1;overflow-y:auto}
+#desc-title{font-size:11px;color:#ffd166;margin-bottom:5px}
+#desc-text{font-size:12px;color:#c8d8f0;line-height:1.6;white-space:pre-wrap}
+#desc-detail{font-size:10.5px;color:#5a7aaa;margin-top:6px;padding-top:6px;border-top:1px solid #1f2d44;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>rCore ch2 — Batch OS: 경로 A (syscall → 같은 앱) vs 경로 B (예외 → 다음 앱)</h1>
+<div id="main">
+
+<!-- LEFT: 분기 다이어그램 -->
+<div id="left">
+  <h2>TRAP HANDLER 분기 흐름</h2>
+  <div id="branch-svg-wrap">
+    <svg id="branch-svg" width="100%" viewBox="0 0 260 400" style="display:block;height:100%"></svg>
+  </div>
+</div>
+
+<!-- RIGHT: 스텝 정보 + 코드 + 설명 -->
+<div id="right">
+  <div id="step-bar">
+    <div id="step-row">
+      <span id="step-num">Step 1 / 8</span>
+      <span id="step-title">—</span>
+    </div>
+    <div id="step-file">—</div>
+    <div id="nav">
+      <button id="btn-prev-page" style="background:#1f2a50;border-color:#5888ff;color:#80b0ff;font-weight:bold" onclick="location.href='../trap/index.html'">← trap</button>
+      <button id="btn-prev" onclick="go(-1)">◄ Prev</button>
+      <div id="prog-bar"><div id="prog-fill"></div></div>
+      <span id="path-badge">─</span>
+      <button id="btn-next" onclick="go(1)">Next ►</button>
+      <button id="btn-next-page" style="background:#1f2a50;border-color:#5888ff;color:#80b0ff;font-weight:bold" onclick="location.href='../index.html'">ch2 →</button>
+    </div>
+  </div>
+
+  <div id="code-wrap">
+    <div id="code-label">소스 코드</div>
+    <div id="code-lines"></div>
+  </div>
+
+  <div id="desc-wrap">
+    <div id="desc-title">💡 설명</div>
+    <div id="desc-text"></div>
+    <div id="desc-detail"></div>
+  </div>
+</div>
+
+</div><!-- #main -->
+
+<script src="data.js"></script>
+<script>
+let step = 0;
+
+// ── 분기 SVG ──
+// 노드 정의
+const NODES = {
+  trapEntry:  { x:130, y:30,  w:110, h:24, label:'trap_handler(cx)',  color:'#1e3060', tc:'#80c0ff' },
+  scause:     { x:130, y:80,  w:90,  h:24, label:'scause 확인',        color:'#2a2040', tc:'#c080ff' },
+  pathA:      { x:60,  y:140, w:80,  h:24, label:'경로 A',             color:'#1a3a20', tc:'#3fd860' },
+  pathB:      { x:200, y:140, w:80,  h:24, label:'경로 B',             color:'#3a1a1a', tc:'#ff6060' },
+  sysA:       { x:60,  y:195, w:100, h:38, label:'cx.sepc+=4\ncx.x[10]=ret', color:'#0f2a18', tc:'#4abf70', multiline:true },
+  killB:      { x:200, y:195, w:80,  h:24, label:'앱 종료',             color:'#3a1020', tc:'#ff8080' },
+  restoreA:   { x:60,  y:255, w:80,  h:24, label:'__restore',          color:'#0f1e35', tc:'#4a90e2' },
+  loadB:      { x:200, y:240, w:80,  h:24, label:'load next app',      color:'#1a2040', tc:'#6080c0' },
+  sretA:      { x:60,  y:305, w:80,  h:24, label:'sret → same app',   color:'#1a3010', tc:'#6abf40' },
+  restoreB:   { x:200, y:285, w:80,  h:24, label:'__restore',          color:'#0f1e35', tc:'#4a90e2' },
+  sretB:      { x:200, y:330, w:80,  h:24, label:'sret → next app',   color:'#1a3010', tc:'#6abf40' },
+};
+
+// 현재 스텝 stage → 활성 노드 매핑
+const STAGE_ACTIVE = {
+  handler:   ['trapEntry','scause'],
+  A_restore: ['trapEntry','scause','pathA','sysA','restoreA'],
+  A_user:    ['trapEntry','scause','pathA','sysA','restoreA','sretA'],
+  B_load:    ['trapEntry','scause','pathB','killB','loadB'],
+  B_user:    ['trapEntry','scause','pathB','killB','loadB','restoreB','sretB'],
+};
+// path → 활성 분기
+const PATH_HIGHLIGHT = {
+  none: [],
+  A:    ['pathA','sysA','restoreA','sretA'],
+  B:    ['pathB','killB','loadB','restoreB','sretB'],
+};
+
+function renderBranchSVG(path, stage) {
+  const svg = document.getElementById('branch-svg');
+  const activeNodes = new Set(STAGE_ACTIVE[stage] || []);
+  const pathHL = new Set(PATH_HIGHLIGHT[path] || []);
+  let html = '';
+
+  // 마커
+  html += `<defs>
+    <marker id="arr-flow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#3a5070"/>
+    </marker>
+    <marker id="arr-a" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#3fd860"/>
+    </marker>
+    <marker id="arr-b" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#ff6060"/>
+    </marker>
+  </defs>`;
+
+  // 화살표 그리기
+  function arrow(x1,y1,x2,y2, pth) {
+    let color, mid;
+    if (pth==='A')      { color='#3fd860'; mid='url(#arr-a)'; }
+    else if (pth==='B') { color='#ff6060'; mid='url(#arr-b)'; }
+    else                { color='#3a5070'; mid='url(#arr-flow)'; }
+    const active = (pth==='A' && path==='A') || (pth==='B' && path==='B') || (!pth);
+    const opacity = active ? 1 : 0.25;
+    html += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+      stroke="${color}" stroke-width="1.5" marker-end="${mid}" stroke-opacity="${opacity}"/>`;
+  }
+
+  // 노드 연결선
+  arrow(130, 54, 130, 78);                          // trapEntry → scause
+  // scause → pathA (왼쪽)
+  const aActive = path==='A';
+  const bActive = path==='B';
+  html += `<line x1="85" y1="92" x2="60" y2="138"
+    stroke="${aActive?'#3fd860':'#2a4050'}" stroke-width="1.5" stroke-opacity="${aActive?1:0.3}"
+    marker-end="${aActive?'url(#arr-a)':'url(#arr-flow)'}"/>`;
+  html += `<text x="48" y="118" fill="${aActive?'#3fd860':'#2a4050'}" fill-opacity="${aActive?1:0.4}"
+    font-size="8" font-family="Consolas,monospace">ecall</text>`;
+  // scause → pathB (오른쪽)
+  html += `<line x1="175" y1="92" x2="200" y2="138"
+    stroke="${bActive?'#ff6060':'#2a4050'}" stroke-width="1.5" stroke-opacity="${bActive?1:0.3}"
+    marker-end="${bActive?'url(#arr-b)':'url(#arr-flow)'}"/>`;
+  html += `<text x="185" y="118" fill="${bActive?'#ff6060':'#2a4050'}" fill-opacity="${bActive?1:0.4}"
+    font-size="8" font-family="Consolas,monospace">fault</text>`;
+
+  arrow(60,  164, 60,  193,  'A');  // pathA → sysA
+  arrow(200, 164, 200, 193,  'B');  // pathB → killB
+  arrow(60,  233, 60,  253,  'A');  // sysA → restoreA
+  arrow(200, 219, 200, 238,  'B');  // killB → loadB
+  arrow(60,  279, 60,  303,  'A');  // restoreA → sretA
+  arrow(200, 264, 200, 283,  'B');  // loadB → restoreB
+  arrow(200, 309, 200, 328,  'B');  // restoreB → sretB
+
+  // 노드 그리기
+  Object.entries(NODES).forEach(([id, n]) => {
+    const isActive = activeNodes.has(id);
+    const isPathHL = pathHL.has(id);
+    const opacity = isActive ? 1 : 0.25;
+    const strokeColor = isPathHL ? n.tc : (isActive ? '#3a5070' : '#1f2d44');
+    const strokeW = isPathHL ? 1.5 : 1;
+
+    if (n.multiline) {
+      const lines = n.label.split('\n');
+      html += `<rect x="${n.x - n.w/2}" y="${n.y}" width="${n.w}" height="${n.h}"
+        fill="${n.color}" fill-opacity="${opacity}" stroke="${strokeColor}" stroke-width="${strokeW}" rx="4"/>`;
+      lines.forEach((ln, i) => {
+        const ly = n.y + 13 + i * 14;
+        html += `<text x="${n.x}" y="${ly}" fill="${n.tc}" fill-opacity="${opacity}"
+          font-size="9" text-anchor="middle" font-family="Consolas,monospace">${ln}</text>`;
+      });
+    } else {
+      html += `<rect x="${n.x - n.w/2}" y="${n.y}" width="${n.w}" height="${n.h}"
+        fill="${n.color}" fill-opacity="${opacity}" stroke="${strokeColor}" stroke-width="${strokeW}" rx="4"/>`;
+      html += `<text x="${n.x}" y="${n.y + 16}" fill="${n.tc}" fill-opacity="${opacity}"
+        font-size="9.5" text-anchor="middle" font-family="Consolas,monospace">${n.label}</text>`;
+    }
+  });
+
+  svg.innerHTML = html;
+}
+
+// ── 코드 패널 ──
+function renderCode(code, curLine) {
+  const el = document.getElementById('code-lines');
+  let html = '';
+  code.forEach((t, i) => {
+    let cls = 'cl';
+    if (i < curLine) cls += ' done';
+    if (i === curLine) cls += ' hl';
+    const ln = String(i + 1).padStart(2, ' ');
+    html += `<span class="${cls}">${ln}  ${t}</span>\n`;
+  });
+  el.innerHTML = html;
+  const lines = el.querySelectorAll('.cl');
+  if (lines[curLine]) lines[curLine].scrollIntoView({ block: 'nearest' });
+}
+
+// ── 전체 렌더 ──
+function render() {
+  const st = STEPS[step];
+
+  document.getElementById('step-num').textContent = `Step ${step + 1} / ${STEPS.length}`;
+  document.getElementById('step-title').textContent = st.title;
+  document.getElementById('step-file').textContent = st.file;
+  document.getElementById('prog-fill').style.width = `${(step / (STEPS.length - 1)) * 100}%`;
+  document.getElementById('btn-prev').disabled = step === 0;
+  document.getElementById('btn-next').disabled = step === STEPS.length - 1;
+
+  // path badge
+  const pb = document.getElementById('path-badge');
+  if (st.path === 'A') { pb.textContent='경로 A'; pb.style.background='#1a3a20'; pb.style.color='#3fd860'; pb.style.borderColor='#2a6030'; }
+  else if (st.path === 'B') { pb.textContent='경로 B'; pb.style.background='#3a1a1a'; pb.style.color='#ff6060'; pb.style.borderColor='#602020'; }
+  else { pb.textContent='─'; pb.style.background='#1f2d44'; pb.style.color='#8b949e'; pb.style.borderColor='#2a3552'; }
+
+  renderCode(st.code, st.line);
+  renderBranchSVG(st.path, st.stage);
+
+  document.getElementById('desc-text').textContent = st.desc;
+  document.getElementById('desc-detail').textContent = st.detail || '';
+}
+
+function go(d) {
+  step = Math.max(0, Math.min(STEPS.length - 1, step + d));
+  render();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') go(1);
+  if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   go(-1);
+});
+
+render();
+</script>
+</body>
+</html>

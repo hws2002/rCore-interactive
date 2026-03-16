@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>rCore ch2 — 批处理系统</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Consolas,'Courier New',monospace;background:#0c1220;color:#e6edf3;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 20px}
+h1{font-size:17px;color:#9fc3ff;margin-bottom:4px;text-align:center;letter-spacing:.5px}
+.sub{font-size:11px;color:#4a5a7a;margin-bottom:36px;text-align:center}
+.pipeline{display:flex;align-items:stretch;gap:0;margin-bottom:40px;width:100%;max-width:620px}
+.phase-block{flex:1;display:flex;flex-direction:column}
+.phase-label{font-size:9px;font-weight:bold;letter-spacing:1px;padding:4px 10px;text-align:center;border-radius:3px 3px 0 0;background:#0f1e35;color:#4a90e2;border:1px solid #1a3050;border-bottom:none}
+.card-link{display:flex;flex-direction:column;text-decoration:none;color:inherit;
+  background:#0f182b;border:1px solid #1f2d44;padding:18px 16px;
+  transition:border-color .18s,transform .12s,background .18s;position:relative;cursor:pointer}
+.card-link:hover{border-color:#5888ff;background:#111e35;transform:translateY(-2px)}
+.phase-block:first-child .card-link{border-radius:0 0 0 6px}
+.phase-block:last-child  .card-link{border-radius:0 0 6px 0}
+.step-num{font-size:22px;font-weight:bold;color:#2a3552;margin-bottom:8px;line-height:1}
+.card-link:hover .step-num{color:#3a5080}
+.card-title{font-size:14px;font-weight:bold;color:#e0eaff;margin-bottom:6px}
+.card-desc{font-size:11px;color:#6a80a5;line-height:1.6;margin-bottom:10px}
+.card-meta{font-size:10px;color:#3a5278}
+.card-arrow{position:absolute;top:50%;right:-1px;transform:translateY(-50%);
+  width:22px;height:22px;background:#0c1220;border:1px solid #2a4060;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:11px;color:#4a6080;z-index:1}
+.flow-line{display:flex;align-items:center;justify-content:center;width:100%;max-width:620px;
+  gap:0;margin-bottom:20px;font-size:10px;color:#3a4a60}
+.flow-seg{flex:1;text-align:center;padding:4px 0;border-top:1px dashed #1f2d44}
+.flow-arrow{color:#2a3a55;font-size:14px;flex-shrink:0;padding:0 4px}
+.bottom-nav{display:flex;gap:12px;align-items:center}
+a.home-btn{font-size:11px;color:#4a6080;text-decoration:none;padding:5px 12px;border:1px solid #1f2d44;border-radius:4px}
+a.home-btn:hover{color:#7fb1ff;border-color:#3a5278}
+.tag{display:inline-block;font-size:9px;padding:2px 7px;border-radius:8px;margin-bottom:10px;font-weight:bold;background:#0f1e35;color:#4a90e2;border:1px solid #1a3050}
+</style>
+</head>
+<body>
+
+<h1>rCore ch2 — 批处理系统</h1>
+<p class="sub">① Trap 흐름 전 과정 → ② 경로 A/B 분기 순서로 진행합니다</p>
+
+<div class="pipeline">
+
+  <!-- ① trap -->
+  <div class="phase-block">
+    <div class="phase-label">런타임 (매 ecall / 예외)</div>
+    <a class="card-link" href="trap/index.html">
+      <div class="step-num">①</div>
+      <span class="tag">trap cycle</span>
+      <div class="card-title">Trap 처리 흐름</div>
+      <div class="card-desc">run_next_app → __restore → U-mode<br>
+        ecall → __alltraps → TrapContext 저장<br>
+        trap_handler → cx 수정<br>
+        → __restore → sret
+      </div>
+      <div class="card-meta">18 steps · Kernel Stack SVG · sp/sscratch</div>
+      <div class="card-arrow">→</div>
+    </a>
+  </div>
+
+  <!-- ② batch -->
+  <div class="phase-block">
+    <div class="phase-label">trap_handler 분기</div>
+    <a class="card-link" href="batch/index.html">
+      <div class="step-num">②</div>
+      <span class="tag">path A / B</span>
+      <div class="card-title">Batch 경로 분기</div>
+      <div class="card-desc">경로 A: UserEnvCall<br>
+        → cx.sepc+=4, cx.x[10]=ret<br>
+        경로 B: StoreFault / IllegalInstruction<br>
+        → run_next_app() → 다음 앱 시작
+      </div>
+      <div class="card-meta">8 steps · 분기 다이어그램 · 경로 비교</div>
+    </a>
+  </div>
+
+</div>
+
+<div class="flow-line">
+  <span class="flow-seg">run_next_app → __restore → sret → U-mode</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-seg">ecall → __alltraps → trap_handler → 경로 A/B</span>
+</div>
+
+<div class="bottom-nav">
+  <a class="home-btn" href="../index.html">← 전체 목록</a>
+  <a class="home-btn" href="../ch1/index.html">← ch1</a>
+  <a class="home-btn" href="../ch3/index.html">ch3 →</a>
+</div>
+
+</body>
+</html>
