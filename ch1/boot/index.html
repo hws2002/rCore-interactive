@@ -33,13 +33,14 @@ button:hover:not(:disabled){border-color:#58a6ff;color:#9fc3ff}
 button:disabled{opacity:.35;cursor:not-allowed}
 #prog-bar{flex:1;height:5px;background:#1c2842;border-radius:3px;overflow:hidden}
 #prog-fill{height:100%;width:0;background:linear-gradient(90deg,#3f7dff,#7fb1ff);transition:width .2s}
-#code-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:7px;flex:0 0 auto;max-height:220px;overflow:hidden;display:flex;flex-direction:column}
-#code-label{font-size:10px;color:#7fb1ff;margin-bottom:4px}
-#code-lines{font-size:11.5px;line-height:1.5;white-space:pre;overflow-y:auto;flex:1}
-.cl{display:block;padding:0 2px}
+#code-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:7px;flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+#code-label{font-size:10px;color:#7fb1ff;margin-bottom:4px;flex-shrink:0}
+#code-lines{font-size:11.5px;line-height:1.5;white-space:pre;overflow-y:auto;flex:1;min-height:0}
+.cl{display:block;padding:0 2px;color:#4a6a90}
 .cl.hl{background:#352c0a;color:#ffd166;border-radius:2px}
-.cl.done{color:#3a4a60}
-#desc-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:8px 10px;flex:1;overflow-y:auto}
+.cl.done{color:#2e3e56}
+.cl.active{color:#c8daf0}
+#desc-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:8px 10px;flex:0 0 auto;max-height:165px;overflow-y:auto}
 #desc-title{font-size:11px;color:#ffd166;margin-bottom:5px}
 #desc-text{font-size:12px;color:#c8d8f0;line-height:1.6;white-space:pre-wrap}
 #desc-detail{font-size:10.5px;color:#5a7aaa;margin-top:6px;padding-top:6px;border-top:1px solid #1f2d44;white-space:pre-wrap}
@@ -72,10 +73,11 @@ button:disabled{opacity:.35;cursor:not-allowed}
     </div>
     <div id="step-file">—</div>
     <div id="nav">
-      <button id="btn-prev-page" style="display:none;background:#1f2a50;border-color:#5888ff;color:#80b0ff;font-weight:bold">← ch1_build</button>
+      <button id="btn-prev-page" style="display:none;background:#1f2a50;border-color:#5888ff;color:#80b0ff;font-weight:bold">← build</button>
       <button id="btn-prev" onclick="go(-1)">◄ Prev</button>
       <div id="prog-bar"><div id="prog-fill"></div></div>
       <button id="btn-next" onclick="go(1)">Next ►</button>
+      <button id="btn-next-page" style="display:none;background:#1f2a50;border-color:#5888ff;color:#80b0ff;font-weight:bold">shutdown →</button>
     </div>
   </div>
 
@@ -105,16 +107,19 @@ const ZIGZAG_Y1 = 145, ZIGZAG_Y2 = 168; // 지그재그 간격 Y 범위
 let step = 0;
 
 // ── SVG 렌더링 ──
-function renderSVG(active, pcStr) {
+function renderSVG(active, pcStr, showSp) {
   const svg = document.getElementById('mem-svg');
   const pcY = pcToY(pcStr);
 
   let html = '';
 
-  // 마커 정의 (PC 화살표)
+  // 마커 정의
   html += `<defs>
     <marker id="arr-pc" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
       <path d="M0,0 L6,3 L0,6 Z" fill="#a78bfa"/>
+    </marker>
+    <marker id="arr-sp" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#4ade80"/>
     </marker>
   </defs>`;
 
@@ -189,17 +194,29 @@ function renderSVG(active, pcStr) {
       fill="#8aa0c5" font-size="8" font-family="Consolas,monospace">${seg.addrBot}</text>`;
   });
 
-  // PC 화살표 (왼쪽에서 세그먼트 좌측으로)
+  // sp 화살표 (왼쪽 레인: x=10~58, boot_stack_top @ 0x80214000)
+  if (showSp) {
+    // k 세그먼트: 0x80200000(bot,y=74) ~ 0x80280000(top,y=28), h=46
+    const kBot = SEG_LAYOUT.k.y + SEG_LAYOUT.k.h;
+    const spY = kBot - ((0x80214000 - 0x80200000) / (0x80280000 - 0x80200000)) * SEG_LAYOUT.k.h;
+    const sx1 = 10, sx2 = BAR_X - 62;
+    html += `<line x1="${sx1}" y1="${spY}" x2="${sx2}" y2="${spY}"
+      stroke="#4ade80" stroke-width="1.5" marker-end="url(#arr-sp)"/>`;
+    html += `<text x="${sx1}" y="${spY - 4}" fill="#4ade80" font-size="9"
+      text-anchor="start" font-family="Consolas,monospace" font-weight="bold">sp</text>`;
+    html += `<text x="${sx1}" y="${spY + 11}" fill="#2ab860" font-size="7.5"
+      text-anchor="start" font-family="Consolas,monospace">0x80214000</text>`;
+  }
+
+  // PC 화살표 (오른쪽 레인: x=68~118)
   if (pcY !== null) {
     const x2 = BAR_X - 2;
-    const x1 = BAR_X - 50;
+    const x1 = BAR_X - 52;
     html += `<line x1="${x1}" y1="${pcY}" x2="${x2}" y2="${pcY}"
       stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arr-pc)"/>`;
-    // "PC" label above arrow start
     html += `<text x="${x1}" y="${pcY - 4}" fill="#a78bfa" font-size="9"
       text-anchor="start" font-family="Consolas,monospace" font-weight="bold">PC</text>`;
-    // address below arrow
-    html += `<text x="${x1}" y="${pcY + 12}" fill="#7a5aff" font-size="7.5"
+    html += `<text x="${x1}" y="${pcY + 11}" fill="#7a5aff" font-size="7.5"
       text-anchor="start" font-family="Consolas,monospace">${pcStr}</text>`;
   }
 
@@ -230,20 +247,22 @@ function renderRegs(regs) {
 }
 
 // ── 코드 패널 렌더링 ──
-function renderCode(code, curLine) {
+// lineFrom~lineTo 범위 하이라이트, 그 외: done(과거) / 기본(미래 dim)
+function renderCode(code, lineFrom, lineTo) {
+  const to = (lineTo !== undefined) ? lineTo : lineFrom;
   const el = document.getElementById('code-lines');
   let html = '';
   code.forEach((t, i) => {
     let cls = 'cl';
-    if (i < curLine) cls += ' done';
-    if (i === curLine) cls += ' hl';
+    if (i < lineFrom)    cls += ' done';
+    else if (i <= to)    cls += ' hl';
+    // i > to: 기본 dim (cl 만)
     const lineNum = String(i + 1).padStart(2, ' ');
     html += `<span class="${cls}">${lineNum}  ${t}</span>\n`;
   });
   el.innerHTML = html;
-  // 현재 라인이 보이도록 스크롤
   const lines = el.querySelectorAll('.cl');
-  if (lines[curLine]) lines[curLine].scrollIntoView({block:'nearest'});
+  if (lines[lineFrom]) lines[lineFrom].scrollIntoView({block:'nearest'});
 }
 
 // ── 전체 렌더 ──
@@ -258,26 +277,36 @@ function render() {
   document.getElementById('btn-prev').disabled = step === 0;
   document.getElementById('btn-next').disabled = step === STEPS.length - 1;
 
-  // 첫 스텝에서 prevPage 버튼 표시
-  const stB = STEPS[step];
+  // prevPage 버튼 (첫 스텝)
   const prevPageBtn = document.getElementById('btn-prev-page');
   if (prevPageBtn) {
-    if (step === 0 && stB.prevPage) {
+    if (step === 0 && st.prevPage) {
       prevPageBtn.style.display = 'inline-block';
-      prevPageBtn.onclick = () => location.href = stB.prevPage;
+      prevPageBtn.onclick = () => location.href = st.prevPage;
     } else {
       prevPageBtn.style.display = 'none';
     }
   }
 
+  // nextPage 버튼 (마지막 스텝)
+  const nextPageBtn = document.getElementById('btn-next-page');
+  if (nextPageBtn) {
+    if (step === STEPS.length - 1 && st.nextPage) {
+      nextPageBtn.style.display = 'inline-block';
+      nextPageBtn.onclick = () => location.href = st.nextPage;
+    } else {
+      nextPageBtn.style.display = 'none';
+    }
+  }
+
   // 코드
-  renderCode(st.code, st.line);
+  renderCode(st.code, st.lineFrom, st.lineTo);
 
   // PC 값 (regs에서)
   const pcStr = st.regs.PC || null;
 
   // SVG 메모리 맵
-  renderSVG(st.active || [], pcStr);
+  renderSVG(st.active || [], pcStr, st.showSp || false);
 
   // 레지스터
   renderRegs(st.regs);

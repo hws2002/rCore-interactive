@@ -66,9 +66,10 @@ const STEPS = [
   {
     title: 'rust_main: 커널 실행 중 (S-mode)',
     file: 'os/src/main.rs',
-    code: CODE_MAIN, line: 5,
+    code: CODE_MAIN, lineFrom: 7, lineTo: 7,
     mode: 's',  // 현재 활성 모드
     ecall: false,
+    prevPage: '../boot/index.html',
     regs: { a7: '─', a0: '─', mode: 'S-mode', PC: '~0x80200400' },
     desc: 'rust_main이 S-mode에서 실행 중입니다.\n\nclear_bss() 완료, 로깅 초기화 완료,\n"[kernel] Hello, world!" 출력 완료.\n\n이제 shutdown()을 호출하여 QEMU를 종료합니다.\n커널은 현재 Supervisor 모드(S-mode)에서 동작 중입니다.',
     detail: 'S-mode: U-mode 앱보다 높고 RustSBI(M-mode)보다 낮은 특권 레벨. 페이지 테이블, 트랩 처리, 커널 주요 기능을 담당.',
@@ -76,7 +77,7 @@ const STEPS = [
   {
     title: 'shutdown() 호출 → sbi_call(8, 0, 0, 0)',
     file: 'os/src/sbi.rs',
-    code: CODE_SHUTDOWN, line: 5,
+    code: CODE_SHUTDOWN, lineFrom: 3, lineTo: 6,
     mode: 's',
     ecall: false,
     regs: { a7: '─', a0: '─', mode: 'S-mode', PC: '~0x80200460' },
@@ -86,7 +87,7 @@ const STEPS = [
   {
     title: '레지스터 준비: a7=8, a0=a1=a2=0',
     file: 'os/src/sbi.rs — inline asm',
-    code: CODE_SBI_CALL, line: 6,
+    code: CODE_SBI_CALL, lineFrom: 4, lineTo: 10,
     mode: 's',
     ecall: false,
     regs: { a7: '0x8', a0: '0x0', mode: 'S-mode', PC: '~0x80200480' },
@@ -96,7 +97,7 @@ const STEPS = [
   {
     title: 'ecall — S-mode → M-mode 트랩 발생!',
     file: 'os/src/sbi.rs — "ecall" 명령',
-    code: CODE_SBI_CALL, line: 6,
+    code: CODE_SBI_CALL, lineFrom: 6, lineTo: 6,
     mode: 'ecall',  // 전환 애니메이션
     ecall: true,
     regs: { a7: '0x8', a0: '0x0', mode: 'S→M', PC: '0x80000??? (mtvec)' },
@@ -106,7 +107,7 @@ const STEPS = [
   {
     title: 'M-mode: RustSBI trap handler 진입',
     file: 'RustSBI @ 0x80000000 (M-mode)',
-    code: CODE_RUSTSBI, line: 1,
+    code: CODE_RUSTSBI, lineFrom: 1, lineTo: 2,
     mode: 'm',
     ecall: false,
     regs: { a7: '0x8', a0: '0x0', mode: 'M-mode', PC: '~0x80000300' },
@@ -116,7 +117,7 @@ const STEPS = [
   {
     title: 'RustSBI: a7=8 확인 → SBI_SHUTDOWN 분기',
     file: 'RustSBI M-mode handler',
-    code: CODE_RUSTSBI, line: 4,
+    code: CODE_RUSTSBI, lineFrom: 3, lineTo: 4,
     mode: 'm',
     ecall: false,
     regs: { a7: '0x8', a0: '0x0', mode: 'M-mode', PC: '~0x80000340' },
@@ -126,7 +127,7 @@ const STEPS = [
   {
     title: 'QEMU virt test-finisher에 0x5555 쓰기',
     file: 'RustSBI → QEMU test-finisher (MMIO)',
-    code: CODE_RUSTSBI, line: 6,
+    code: CODE_RUSTSBI, lineFrom: 6, lineTo: 8,
     mode: 'm',
     ecall: false,
     regs: { a7: '0x8', a0: '0x0', mode: 'M-mode', PC: '~0x80000360' },
@@ -136,7 +137,7 @@ const STEPS = [
   {
     title: '시스템 종료 완료 — QEMU 프로세스 exit',
     file: '— QEMU process exit —',
-    code: CODE_RUSTSBI, line: 8,
+    code: CODE_RUSTSBI, lineFrom: 12, lineTo: 12,
     mode: 'off',
     ecall: false,
     regs: { a7: '0x8', a0: '0x0', mode: '—', PC: '—' },

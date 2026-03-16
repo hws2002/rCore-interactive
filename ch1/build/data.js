@@ -121,7 +121,7 @@ const STEPS = [
   {
     title: '문제: 링커 스크립트 없이 빌드',
     file: '─ 초기 상태 ─',
-    code: CODE_CARGO, line: 0,
+    code: CODE_CARGO, lineFrom: 0, lineTo: 8,
     sections: [],
     highlight: [],
     symbols: {},
@@ -131,7 +131,7 @@ const STEPS = [
   {
     title: '.cargo/config.toml: -Tsrc/linker.ld',
     file: '.cargo/config.toml',
-    code: CODE_CARGO, line: 6,
+    code: CODE_CARGO, lineFrom: 5, lineTo: 8,
     sections: [],
     highlight: [],
     symbols: {},
@@ -141,7 +141,7 @@ const STEPS = [
   {
     title: 'linker.ld: OUTPUT_ARCH + ENTRY + BASE_ADDRESS',
     file: 'os/src/linker.ld',
-    code: CODE_LINKER_HEADER, line: 4,
+    code: CODE_LINKER_HEADER, lineFrom: 1, lineTo: 8,
     sections: [],
     highlight: [],
     symbols: { BASE: '0x80200000' },
@@ -151,7 +151,7 @@ const STEPS = [
   {
     title: '.text 섹션: .text.entry 우선 배치',
     file: 'os/src/linker.ld',
-    code: CODE_LINKER_TEXT, line: 2,
+    code: CODE_LINKER_TEXT, lineFrom: 1, lineTo: 7,
     sections: ['text'],
     highlight: ['text'],
     symbols: { stext: '0x80200000', etext: '~0x80202000' },
@@ -161,7 +161,7 @@ const STEPS = [
   {
     title: 'ALIGN(4K) → .rodata 섹션',
     file: 'os/src/linker.ld',
-    code: CODE_LINKER_RODATA, line: 2,
+    code: CODE_LINKER_RODATA, lineFrom: 1, lineTo: 7,
     sections: ['text', 'rodata'],
     highlight: ['rodata'],
     symbols: { stext: '0x80200000', etext: '~0x80202000', srodata: '~0x80202000', erodata: '~0x80203000' },
@@ -171,7 +171,7 @@ const STEPS = [
   {
     title: 'ALIGN(4K) → .data 섹션',
     file: 'os/src/linker.ld',
-    code: CODE_LINKER_DATA, line: 2,
+    code: CODE_LINKER_DATA, lineFrom: 1, lineTo: 7,
     sections: ['text', 'rodata', 'data'],
     highlight: ['data'],
     symbols: { stext: '0x80200000', srodata: '~0x80202000', sdata: '~0x80203000', edata: '~0x80204000' },
@@ -181,7 +181,7 @@ const STEPS = [
   {
     title: '.bss 섹션: .bss.stack 먼저 (64KB 스택)',
     file: 'os/src/linker.ld',
-    code: CODE_LINKER_BSS, line: 1,
+    code: CODE_LINKER_BSS, lineFrom: 1, lineTo: 9,
     sections: ['text', 'rodata', 'data', 'stack'],
     highlight: ['stack'],
     symbols: { sdata: '~0x80203000', edata: '~0x80204000', stack_lb: '~0x80204000', stack_top: '~0x80214000' },
@@ -191,7 +191,7 @@ const STEPS = [
   {
     title: 'entry.asm 컴파일 → .text.entry + .bss.stack 섹션으로 ELF에 포함',
     file: 'os/src/entry.asm (소스코드 → 기계어로 변환되어 ELF에 삽입)',
-    code: CODE_ENTRY, line: 0,
+    code: CODE_ENTRY, lineFrom: 0, lineTo: 10,
     sections: ['text', 'rodata', 'data', 'stack', 'bss'],
     highlight: ['text', 'stack'],
     symbols: {
@@ -206,7 +206,7 @@ const STEPS = [
   {
     title: 'ELF 빌드 완료 → QEMU 실행 준비',
     file: '$ cargo build → $ qemu-system-riscv64',
-    code: CODE_BUILD_DONE, line: 6,
+    code: CODE_BUILD_DONE, lineFrom: 0, lineTo: 3,
     sections: ['text', 'rodata', 'data', 'stack', 'bss'],
     highlight: [],
     nextPage: '../boot/index.html',

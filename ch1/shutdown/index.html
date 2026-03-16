@@ -30,13 +30,13 @@ button:hover:not(:disabled){border-color:#58a6ff;color:#9fc3ff}
 button:disabled{opacity:.35;cursor:not-allowed}
 #prog-bar{flex:1;height:5px;background:#1c2842;border-radius:3px;overflow:hidden}
 #prog-fill{height:100%;width:0;background:linear-gradient(90deg,#3f7dff,#7fb1ff);transition:width .2s}
-#code-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:7px;flex:0 0 auto;max-height:240px;overflow:hidden;display:flex;flex-direction:column}
-#code-label{font-size:10px;color:#7fb1ff;margin-bottom:4px}
-#code-lines{font-size:11.5px;line-height:1.5;white-space:pre;overflow-y:auto;flex:1}
-.cl{display:block;padding:0 2px}
+#code-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:7px;flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+#code-label{font-size:10px;color:#7fb1ff;margin-bottom:4px;flex-shrink:0}
+#code-lines{font-size:11.5px;line-height:1.5;white-space:pre;overflow-y:auto;flex:1;min-height:0}
+.cl{display:block;padding:0 2px;color:#4a6a90}
 .cl.hl{background:#352c0a;color:#ffd166;border-radius:2px}
-.cl.done{color:#3a4a60}
-#desc-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:8px 10px;flex:1;overflow-y:auto}
+.cl.done{color:#2e3e56}
+#desc-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:8px 10px;flex:0 0 auto;max-height:165px;overflow-y:auto}
 #desc-title{font-size:11px;color:#ffd166;margin-bottom:5px}
 #desc-text{font-size:12px;color:#c8d8f0;line-height:1.6;white-space:pre-wrap}
 #desc-detail{font-size:10.5px;color:#5a7aaa;margin-top:6px;padding-top:6px;border-top:1px solid #1f2d44;white-space:pre-wrap}
@@ -69,6 +69,7 @@ button:disabled{opacity:.35;cursor:not-allowed}
     </div>
     <div id="step-file">—</div>
     <div id="nav">
+      <button id="btn-prev-page" style="display:none;background:#1f2a50;border-color:#5888ff;color:#80b0ff;font-weight:bold">← boot</button>
       <button id="btn-prev" onclick="go(-1)">◄ Prev</button>
       <div id="prog-bar"><div id="prog-fill"></div></div>
       <button id="btn-next" onclick="go(1)">Next ►</button>
@@ -165,18 +166,19 @@ function renderRegs(regs) {
 }
 
 // ── 코드 렌더링 ──
-function renderCode(code, curLine) {
+function renderCode(code, lineFrom, lineTo) {
+  const to = (lineTo !== undefined) ? lineTo : lineFrom;
   const el = document.getElementById('code-lines');
   let html = '';
   code.forEach((t, i) => {
     let cls = 'cl';
-    if (i < curLine) cls += ' done';
-    if (i === curLine) cls += ' hl';
+    if (i < lineFrom)  cls += ' done';
+    else if (i <= to)  cls += ' hl';
     html += `<span class="${cls}">${String(i+1).padStart(2,' ')}  ${t}</span>\n`;
   });
   el.innerHTML = html;
   const lines = el.querySelectorAll('.cl');
-  if (lines[curLine]) lines[curLine].scrollIntoView({block:'nearest'});
+  if (lines[lineFrom]) lines[lineFrom].scrollIntoView({block:'nearest'});
 }
 
 // ── 전체 렌더 ──
@@ -189,7 +191,18 @@ function render() {
   document.getElementById('btn-prev').disabled = step === 0;
   document.getElementById('btn-next').disabled = step === STEPS.length - 1;
 
-  renderCode(st.code, st.line);
+  // prevPage 버튼 (첫 스텝)
+  const prevPageBtn = document.getElementById('btn-prev-page');
+  if (prevPageBtn) {
+    if (step === 0 && st.prevPage) {
+      prevPageBtn.style.display = 'inline-block';
+      prevPageBtn.onclick = () => location.href = st.prevPage;
+    } else {
+      prevPageBtn.style.display = 'none';
+    }
+  }
+
+  renderCode(st.code, st.lineFrom, st.lineTo);
   renderPrivSVG(st.mode, st.ecall);
   renderRegs(st.regs);
 

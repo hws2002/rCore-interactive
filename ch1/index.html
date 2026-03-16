@@ -50,6 +50,18 @@ a.home-btn:hover{color:#7fb1ff;border-color:#3a5278}
 .tag{display:inline-block;font-size:9px;padding:2px 7px;border-radius:8px;margin-bottom:10px;font-weight:bold}
 .tag.build{background:#1a3010;color:#6abf40;border:1px solid #2a5018}
 .tag.run  {background:#0f1e35;color:#4a90e2;border:1px solid #1a3050}
+
+/* ── make run 파이프라인 ── */
+.make-pipeline{width:100%;max-width:860px;background:#0f182b;border:1px solid #1f2d44;border-radius:6px;padding:14px 18px;margin-bottom:28px}
+.make-pipeline h3{font-size:9px;color:#3a5070;letter-spacing:1.5px;margin-bottom:12px;text-transform:uppercase}
+.pipe-row{display:flex;align-items:center;flex-wrap:wrap;gap:0;row-gap:8px}
+.pipe-step{display:flex;flex-direction:column;align-items:center;min-width:90px}
+.pipe-cmd{font-size:11px;font-weight:bold;color:#e0eaff;background:#0c1220;border:1px solid #2a3552;border-radius:3px;padding:3px 9px;white-space:nowrap}
+.pipe-sub{font-size:9px;color:#3a5070;margin-top:3px;text-align:center;line-height:1.4}
+.pipe-badge{font-size:8px;padding:1px 5px;border-radius:6px;margin-top:2px;font-weight:bold}
+.pipe-badge.build{background:#1a3010;color:#6abf40}
+.pipe-badge.run  {background:#0f1e35;color:#4a90e2}
+.pipe-arrow{color:#2a3a55;font-size:16px;padding:0 5px;padding-bottom:14px}
 </style>
 </head>
 <body>
@@ -57,7 +69,48 @@ a.home-btn:hover{color:#7fb1ff;border-color:#3a5278}
 <h1>rCore ch1 — 应用程序与基本执行环境</h1>
 <p class="sub">① 빌드 → ② 부팅 → ③ 종료 순서로 진행합니다 &nbsp;·&nbsp; 각 카드를 클릭하거나 화살표로 이동하세요</p>
 
-<!-- 파이프라인 -->
+<!-- make run 파이프라인 -->
+<div class="make-pipeline">
+  <h3>make run 파이프라인</h3>
+  <div class="pipe-row">
+    <div class="pipe-step">
+      <span class="pipe-cmd">make run</span>
+      <span class="pipe-sub">Makefile</span>
+    </div>
+    <span class="pipe-arrow">→</span>
+    <div class="pipe-step">
+      <span class="pipe-cmd">cargo build</span>
+      <span class="pipe-sub">소스 → ELF</span>
+      <span class="pipe-badge build">빌드타임</span>
+    </div>
+    <span class="pipe-arrow">→</span>
+    <div class="pipe-step">
+      <span class="pipe-cmd">objcopy</span>
+      <span class="pipe-sub">ELF → os.bin<br>(헤더 제거)</span>
+      <span class="pipe-badge build">빌드타임</span>
+    </div>
+    <span class="pipe-arrow">→</span>
+    <div class="pipe-step">
+      <span class="pipe-cmd">qemu-system-riscv64</span>
+      <span class="pipe-sub">os.bin → 0x80200000</span>
+      <span class="pipe-badge run">런타임</span>
+    </div>
+    <span class="pipe-arrow">→</span>
+    <div class="pipe-step">
+      <span class="pipe-cmd">0x1000 → RustSBI</span>
+      <span class="pipe-sub">firmware → mret</span>
+      <span class="pipe-badge run">런타임</span>
+    </div>
+    <span class="pipe-arrow">→</span>
+    <div class="pipe-step">
+      <span class="pipe-cmd">_start @ 0x80200000</span>
+      <span class="pipe-sub">커널 실행 시작</span>
+      <span class="pipe-badge run">런타임</span>
+    </div>
+  </div>
+</div>
+
+<!-- 시각화 카드 파이프라인 -->
 <div class="pipeline">
 
   <!-- ① build -->
