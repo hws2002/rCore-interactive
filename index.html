@@ -20,11 +20,64 @@ h1{color:#58a6ff;font-size:22px;margin-bottom:8px;text-align:center;letter-spaci
 .card p{font-size:12px;color:#8b949e;line-height:1.6}
 .card .meta{margin-top:12px;font-size:11px;color:#58a6ff}
 .footer{margin-top:48px;color:#484f58;font-size:11px;text-align:center}
+.pipeline-box{width:100%;max-width:960px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px 24px;margin-bottom:32px}
+.pipeline-box h3{font-size:11px;color:#484f58;letter-spacing:1px;margin-bottom:14px}
+.pipeline{display:flex;align-items:center;gap:0;flex-wrap:wrap;row-gap:10px}
+.pipe-step{display:flex;flex-direction:column;align-items:center;min-width:100px}
+.pipe-cmd{font-size:12px;font-weight:bold;color:#f0f6fc;background:#0d1117;border:1px solid #30363d;border-radius:4px;padding:4px 10px;white-space:nowrap}
+.pipe-sub{font-size:10px;color:#484f58;margin-top:4px;text-align:center;line-height:1.4}
+.pipe-arrow{color:#30363d;font-size:18px;padding:0 6px;margin-bottom:14px}
+.pipe-divider{width:1px;height:36px;background:#21262d;margin:0 16px 14px}
+.pipe-tag{font-size:9px;padding:1px 6px;border-radius:8px;margin-top:3px;font-weight:bold}
+.tag-build{background:#1f1a3a;color:#8957e5}
+.tag-run{background:#1a3a20;color:#3fb950}
 </style>
 </head>
 <body>
 <h1>rCore Interactive Visualizers</h1>
 <p class="subtitle">각 시각화를 클릭하여 실행하세요 — file:// 로컬 실행 지원</p>
+
+<!-- make run 파이프라인 -->
+<div class="pipeline-box">
+  <h3>MAKE RUN 파이프라인</h3>
+  <div class="pipeline">
+    <div class="pipe-step">
+      <span class="pipe-cmd">make run</span>
+      <span class="pipe-sub">Makefile</span>
+    </div>
+    <span class="pipe-arrow">→</span>
+    <div class="pipe-step">
+      <span class="pipe-cmd">cargo build</span>
+      <span class="pipe-sub">소스 → ELF</span>
+      <span class="pipe-tag tag-build">빌드타임</span>
+    </div>
+    <span class="pipe-arrow">→</span>
+    <div class="pipe-step">
+      <span class="pipe-cmd">objcopy</span>
+      <span class="pipe-sub">ELF → os.bin<br>(헤더 제거)</span>
+      <span class="pipe-tag tag-build">빌드타임</span>
+    </div>
+    <span class="pipe-arrow">→</span>
+    <div class="pipe-step">
+      <span class="pipe-cmd">qemu-system-riscv64</span>
+      <span class="pipe-sub">os.bin을 0x80200000에 적재</span>
+      <span class="pipe-tag tag-run">런타임</span>
+    </div>
+    <span class="pipe-arrow">→</span>
+    <div class="pipe-step">
+      <span class="pipe-cmd">0x1000 → RustSBI</span>
+      <span class="pipe-sub">firmware → mret</span>
+      <span class="pipe-tag tag-run">런타임</span>
+    </div>
+    <span class="pipe-arrow">→</span>
+    <div class="pipe-step">
+      <span class="pipe-cmd">_start @ 0x80200000</span>
+      <span class="pipe-sub">커널 실행 시작</span>
+      <span class="pipe-tag tag-run">런타임</span>
+    </div>
+  </div>
+</div>
+
 <div class="grid">
   <a class="card" href="ch1/index.html">
     <span class="card-badge badge-ch1">ch1</span>
