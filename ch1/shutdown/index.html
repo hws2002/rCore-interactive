@@ -2,20 +2,21 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>rCore ch1 — SBI Shutdown</title>
+<title>rCore ch1 — 종료 과정</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Consolas,'Courier New',monospace;background:#0c1220;color:#e6edf3;height:100vh;display:flex;flex-direction:column;overflow:hidden}
 h1{font-size:13px;color:#9fc3ff;background:#151c2f;border-bottom:1px solid #2a3552;padding:7px 12px;flex-shrink:0}
-#main{flex:1;display:grid;grid-template-columns:50% 50%;min-height:0;overflow:hidden}
+#main{flex:1;display:grid;grid-template-columns:38% 62%;min-height:0;overflow:hidden}
 /* ─── LEFT ─── */
-#left{background:#0b1020;border-right:1px solid #2a3552;display:flex;flex-direction:column;padding:8px;gap:8px;overflow:hidden}
-#priv-wrap h2,#reg-wrap h2{font-size:10px;color:#7fb1ff;margin-bottom:5px;letter-spacing:.5px}
-#priv-wrap{flex:0 0 auto}
-#priv-svg-wrap svg{display:block;width:100%}
-#reg-wrap{flex:1;overflow-y:auto}
-#reg-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
-.rv{display:flex;justify-content:space-between;align-items:center;border:1px solid #1f2d44;border-radius:4px;padding:7px 10px;background:#0f182b;font-size:12px}
+#left{background:#0b1020;border-right:1px solid #2a3552;display:flex;flex-direction:column;padding:8px;gap:7px;overflow:hidden}
+#left h2{font-size:10px;color:#7fb1ff;margin-bottom:4px;letter-spacing:.5px}
+#chain-wrap{flex:1;overflow:hidden;display:flex;flex-direction:column}
+#chain-svg-wrap{flex:1;overflow:hidden}
+#chain-svg-wrap svg{display:block;width:100%;height:100%}
+#reg-wrap{flex:0 0 auto}
+#reg-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.rv{display:flex;justify-content:space-between;align-items:center;border:1px solid #1f2d44;border-radius:3px;padding:5px 8px;background:#0f182b;font-size:11px}
 .rk{color:#7fa8d5}.rvv{color:#e8f0ff}
 /* ─── RIGHT ─── */
 #right{display:flex;flex-direction:column;padding:8px;gap:7px;overflow:hidden;background:#0e1528}
@@ -43,19 +44,19 @@ button:disabled{opacity:.35;cursor:not-allowed}
 </style>
 </head>
 <body>
-<h1>rCore ch1 — 关机过程: rust_main → shutdown() → sbi_call(8) → ecall → M-mode → QEMU exit</h1>
+<h1>rCore ch1 — 종료 과정: rust_main → exit_success() → sw 0x5555, 0(0x100000) → QEMU exit</h1>
 <div id="main">
 
-<!-- LEFT: 특권 레벨 레이어 + 레지스터 -->
+<!-- LEFT: 콜 체인 + 레지스터 -->
 <div id="left">
-  <div id="priv-wrap">
-    <h2>PRIVILEGE LAYERS</h2>
-    <div id="priv-svg-wrap">
-      <svg id="priv-svg" viewBox="0 0 260 200" style="display:block;width:100%"></svg>
+  <div id="chain-wrap">
+    <h2>CALL CHAIN (S-mode)</h2>
+    <div id="chain-svg-wrap">
+      <svg id="chain-svg" viewBox="0 0 200 280" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:100%"></svg>
     </div>
   </div>
   <div id="reg-wrap">
-    <h2>REGISTER STATE</h2>
+    <h2>STATE</h2>
     <div id="reg-grid"></div>
   </div>
 </div>
@@ -64,7 +65,7 @@ button:disabled{opacity:.35;cursor:not-allowed}
 <div id="right">
   <div id="step-bar">
     <div id="step-row">
-      <span id="step-num">Step 1 / 8</span>
+      <span id="step-num">Step 1 / 5</span>
       <span id="step-title">—</span>
     </div>
     <div id="step-file">—</div>
@@ -94,66 +95,59 @@ button:disabled{opacity:.35;cursor:not-allowed}
 <script>
 let step = 0;
 
-// ── 특권 레벨 레이어 SVG ──
-// 3개 레이어: M-mode(top), S-mode(mid), U-mode(bot)
-// 화살표: ecall (S→M), mret (M→S)
-const LAYERS = [
-  { id:'m', label:'M-mode (Machine)', sublabel:'RustSBI @ 0x80000000', y:10,  h:55, color:'#3a1a5a', border:'#9b59b6', text:'#d7aefb' },
-  { id:'s', label:'S-mode (Supervisor)', sublabel:'Kernel @ 0x80200000', y:78, h:55, color:'#1a2a5a', border:'#3a7dff', text:'#80b0ff' },
-  { id:'u', label:'U-mode (User)', sublabel:'(Apps — not used in ch1)', y:146, h:46, color:'#1a3a2a', border:'#3a8c5a', text:'#7dffba' },
-];
+// ── 콜 체인 SVG ──
+const BOX_X = 8, BOX_W = 184, BOX_H = 38, BOX_GAP = 14;
+const ARROW_H = BOX_GAP;
 
-function renderPrivSVG(mode, ecall) {
-  const svg = document.getElementById('priv-svg');
+function renderChainSVG(activeStep) {
+  const svg = document.getElementById('chain-svg');
   let html = '';
 
-  // 마커 정의
+  // 화살표 마커
   html += `<defs>
-    <marker id="arr-up" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-      <path d="M0,0 L6,3 L0,6 Z" fill="#ff6b6b"/>
+    <marker id="arr-dn" markerWidth="6" markerHeight="6" refX="3" refY="5" orient="auto">
+      <path d="M0,0 L6,0 L3,6 Z" fill="#5a7aaa"/>
     </marker>
-    <marker id="arr-dn" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-      <path d="M0,0 L6,3 L0,6 Z" fill="#6bffb0"/>
+    <marker id="arr-dn-act" markerWidth="6" markerHeight="6" refX="3" refY="5" orient="auto">
+      <path d="M0,0 L6,0 L3,6 Z" fill="#ffd166"/>
     </marker>
   </defs>`;
 
-  LAYERS.forEach(l => {
-    const isActive = (l.id === mode) || (ecall && (l.id === 's' || l.id === 'm')) || mode === 'off';
-    const opacity = mode === 'off' ? 0.2 : (l.id === mode || (ecall && (l.id === 's' || l.id === 'm'))) ? 1 : 0.3;
+  CALL_CHAIN.forEach((box, i) => {
+    const y = i * (BOX_H + BOX_GAP);
+    const isActive = i === activeStep;
+    const isPast   = i < activeStep;
+    const opacity  = isPast ? 0.45 : isActive ? 1 : 0.2;
+    const sw       = isActive ? 2 : 0.8;
 
-    html += `<rect x="20" y="${l.y}" width="195" height="${l.h}"
-      fill="${l.color}" fill-opacity="${opacity}"
-      stroke="${l.border}" stroke-opacity="${opacity}" stroke-width="${l.id === mode ? 2 : 1}" rx="4"/>`;
-    html += `<text x="30" y="${l.y + 18}" fill="${l.text}" fill-opacity="${opacity}"
-      font-size="11" font-family="Consolas,monospace" font-weight="bold">${l.label}</text>`;
-    html += `<text x="30" y="${l.y + 33}" fill="${l.text}" fill-opacity="${opacity * 0.7}"
-      font-size="9" font-family="Consolas,monospace">${l.sublabel}</text>`;
+    // 박스
+    html += `<rect x="${BOX_X}" y="${y}" width="${BOX_W}" height="${BOX_H}"
+      fill="${box.color}" fill-opacity="${opacity}"
+      stroke="${box.border}" stroke-opacity="${isActive ? 1 : opacity}" stroke-width="${sw}" rx="4"/>`;
+
+    // 레이블
+    html += `<text x="${BOX_X + BOX_W/2}" y="${y + 14}" fill="${box.text}" fill-opacity="${opacity}"
+      font-size="11" font-weight="${isActive ? 'bold' : 'normal'}" text-anchor="middle" font-family="Consolas,monospace">${box.label}</text>`;
+    html += `<text x="${BOX_X + BOX_W/2}" y="${y + 28}" fill="${box.text}" fill-opacity="${opacity * 0.7}"
+      font-size="8.5" text-anchor="middle" font-family="Consolas,monospace">${box.sub}</text>`;
+
+    // 아래로 화살표 (마지막 박스 제외)
+    if (i < CALL_CHAIN.length - 1) {
+      const ay1 = y + BOX_H + 1;
+      const ay2 = y + BOX_H + ARROW_H - 2;
+      const isActiveArrow = i === activeStep || i < activeStep;
+      const arrowColor = isPast ? '#5a7aaa' : isActive ? '#ffd166' : '#2a3552';
+      const markerId = (isPast || isActive) ? 'arr-dn-act' : 'arr-dn';
+      html += `<line x1="${BOX_X + BOX_W/2}" y1="${ay1}" x2="${BOX_X + BOX_W/2}" y2="${ay2}"
+        stroke="${arrowColor}" stroke-width="1.5" marker-end="url(#${markerId})"/>`;
+    }
   });
-
-  // ecall 화살표 (S→M)
-  if (ecall) {
-    const sTop = LAYERS[0].y + LAYERS[0].h; // M-mode bottom
-    const sMid = LAYERS[1].y;               // S-mode top
-    // 화살표: S-mode top → M-mode bottom (위로)
-    html += `<line x1="220" y1="${LAYERS[1].y + 5}" x2="220" y2="${LAYERS[0].y + LAYERS[0].h - 2}"
-      stroke="#ff6b6b" stroke-width="2" marker-end="url(#arr-up)"/>`;
-    html += `<text x="224" y="${(LAYERS[0].y + LAYERS[0].h + LAYERS[1].y) / 2 + 4}"
-      fill="#ff6b6b" font-size="9.5" font-family="Consolas,monospace">ecall</text>`;
-    html += `<text x="224" y="${(LAYERS[0].y + LAYERS[0].h + LAYERS[1].y) / 2 + 15}"
-      fill="#ff4444" font-size="8" font-family="Consolas,monospace">S→M</text>`;
-  }
-
-  // 종료 상태
-  if (mode === 'off') {
-    html += `<text x="117" y="105" fill="#484f58" font-size="14" font-family="Consolas,monospace"
-      text-anchor="middle">POWERED OFF</text>`;
-  }
 
   svg.innerHTML = html;
 }
 
 // ── 레지스터 렌더링 ──
-const REG_KEYS = [['a7 (EID)', 'a7'], ['a0', 'a0'], ['Mode', 'mode'], ['PC', 'PC']];
+const REG_KEYS = [['Mode', 'mode'], ['PC', 'PC'], ['addr', 'addr'], ['val', 'val']];
 
 function renderRegs(regs) {
   const el = document.getElementById('reg-grid');
@@ -191,7 +185,7 @@ function render() {
   document.getElementById('btn-prev').disabled = step === 0;
   document.getElementById('btn-next').disabled = step === STEPS.length - 1;
 
-  // prevPage 버튼 (첫 스텝)
+  // prevPage 버튼
   const prevPageBtn = document.getElementById('btn-prev-page');
   if (prevPageBtn) {
     if (step === 0 && st.prevPage) {
@@ -203,7 +197,7 @@ function render() {
   }
 
   renderCode(st.code, st.lineFrom, st.lineTo);
-  renderPrivSVG(st.mode, st.ecall);
+  renderChainSVG(st.callStep);
   renderRegs(st.regs);
 
   document.getElementById('desc-text').textContent = st.desc;
