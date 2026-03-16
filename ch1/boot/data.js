@@ -43,12 +43,11 @@ function pcToY(pcStr) {
 // ── 코드 스니펫 ──
 const CODE_QEMU = [
   'qemu-system-riscv64 \\',
-  '  -machine virt \\',
-  '  -nographic \\',
-  '  -bios ../bootloader/rustsbi-qemu.bin \\',
-  '  -device loader,\\',
-  '    file=target/.../os.bin,\\',
-  '    addr=0x80200000',
+  '    -machine virt \\',
+  '    -nographic \\',
+  '    -bios ../bootloader/rustsbi-qemu.bin \\',
+  '    -device loader,file=target/riscv64gc-unknown-none-elf/release/os.bin,\\',
+  '             addr=0x80200000',
 ];
 
 const CODE_FIRMWARE = [

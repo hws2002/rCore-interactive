@@ -17,14 +17,14 @@ const ALL_SECTIONS = [
 
 // ── 코드 스니펫 ──
 const CODE_CARGO = [
-  '# .cargo/config.toml',
+  '# os/.cargo/config.toml',
   '[build]',
   'target = "riscv64gc-unknown-none-elf"',
   '',
   '[target.riscv64gc-unknown-none-elf]',
   'rustflags = [',
-  '    "-C", "link-arg=-Tsrc/linker.ld",',
-  '    # ^ 커스텀 링커 스크립트 지정',
+  '    "-Clink-arg=-Tsrc/linker.ld",',
+  '    "-Cforce-frame-pointers=yes"',
   ']',
 ];
 
@@ -102,18 +102,18 @@ const CODE_ENTRY = [
 ];
 
 const CODE_BUILD_DONE = [
-  '# ① 컴파일 + 링크 완료',
+  '# ① 컴파일 + 링크 완료 (make build)',
   '$ cargo build --release',
   '   Compiling os v0.1.0',
   '    Finished in 3.14s',
   '',
-  '# ② 이제 QEMU로 실행 (→ ch1_boot)',
+  '# ② QEMU로 실행 (make run)',
   '$ qemu-system-riscv64 \\',
-  '    -machine virt -nographic \\',
-  '    -bios rustsbi-qemu.bin \\',
-  '    -device loader,\\',
-  '      file=os.bin,\\',
-  '      addr=0x80200000',
+  '    -machine virt \\',
+  '    -nographic \\',
+  '    -bios ../bootloader/rustsbi-qemu.bin \\',
+  '    -device loader,file=target/riscv64gc-unknown-none-elf/release/os.bin,\\',
+  '             addr=0x80200000',
 ];
 
 // ── 스텝 데이터 ──
@@ -135,7 +135,7 @@ const STEPS = [
     sections: [],
     highlight: [],
     symbols: {},
-    desc: '.cargo/config.toml의 rustflags에 링커 스크립트를 지정합니다.\n\n`"-C", "link-arg=-Tsrc/linker.ld"`\n\n이 설정으로 cargo build 시 자동으로\n링커 스크립트가 적용됩니다.\n\n타겟: riscv64gc-unknown-none-elf\n• riscv64gc: RISC-V 64비트 + GC 확장\n• unknown: 벤더 없음\n• none: OS 없음 (bare-metal)\n• elf: ELF 바이너리 형식',
+    desc: '.cargo/config.toml의 rustflags에 링커 스크립트를 지정합니다.\n\n`"-Clink-arg=-Tsrc/linker.ld"` → 링커 스크립트 적용\n`"-Cforce-frame-pointers=yes"` → 디버깅용 frame pointer 유지\n\n이 설정으로 cargo build 시 자동으로\n링커 스크립트가 적용됩니다.\n\n타겟: riscv64gc-unknown-none-elf\n• riscv64gc: RISC-V 64비트 + GC 확장\n• unknown: 벤더 없음\n• none: OS 없음 (bare-metal)\n• elf: ELF 바이너리 형식',
     detail: 'RISC-V bare-metal 개발: std 없이 core만 사용. #![no_std] #![no_main] 필수.',
   },
   {
