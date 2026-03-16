@@ -54,7 +54,7 @@ button:disabled{opacity:.35;cursor:not-allowed}
   <div id="mem-wrap">
     <h2>ADDRESS SPACE</h2>
     <div id="mem-svg-wrap">
-      <svg id="mem-svg" width="100%" viewBox="0 0 310 235" style="display:block"></svg>
+      <svg id="mem-svg" width="100%" viewBox="0 0 340 240" style="display:block"></svg>
     </div>
   </div>
   <div id="regs-wrap">
@@ -96,7 +96,7 @@ button:disabled{opacity:.35;cursor:not-allowed}
 <script src="data.js"></script>
 <script>
 // ── SVG 상수 ──
-const BAR_X = 70;    // 세그먼트 왼쪽 X (왼쪽에 PC화살표 공간)
+const BAR_X = 120;   // 세그먼트 왼쪽 X (왼쪽에 PC화살표+라벨 공간 확보)
 const BAR_W = 110;   // 세그먼트 폭
 const LBL_X = BAR_X + BAR_W + 6; // 오른쪽 주소 레이블 X
 const ZIGZAG_Y1 = 145, ZIGZAG_Y2 = 168; // 지그재그 간격 Y 범위
@@ -118,21 +118,25 @@ function renderSVG(active, pcStr) {
     </marker>
   </defs>`;
 
-  // 지그재그 갭 (주소 불연속 표시)
-  const zMid = (ZIGZAG_Y1 + ZIGZAG_Y2) / 2;
+  // 지그재그 갭 (주소 불연속 표시) — 두 개의 평행 물결선
   const amp = 5;
   html += `<polyline points="
     ${BAR_X},${ZIGZAG_Y1}
-    ${BAR_X+BAR_W*0.3},${zMid - amp}
-    ${BAR_X+BAR_W*0.7},${zMid + amp}
+    ${BAR_X+BAR_W*0.25},${ZIGZAG_Y1 - amp}
+    ${BAR_X+BAR_W*0.5},${ZIGZAG_Y1 + amp}
+    ${BAR_X+BAR_W*0.75},${ZIGZAG_Y1 - amp}
     ${BAR_X+BAR_W},${ZIGZAG_Y1}
   " fill="none" stroke="#3a4a60" stroke-width="1" stroke-dasharray="3,2"/>
   <polyline points="
     ${BAR_X},${ZIGZAG_Y2}
-    ${BAR_X+BAR_W*0.3},${zMid - amp}
-    ${BAR_X+BAR_W*0.7},${zMid + amp}
+    ${BAR_X+BAR_W*0.25},${ZIGZAG_Y2 - amp}
+    ${BAR_X+BAR_W*0.5},${ZIGZAG_Y2 + amp}
+    ${BAR_X+BAR_W*0.75},${ZIGZAG_Y2 - amp}
     ${BAR_X+BAR_W},${ZIGZAG_Y2}
-  " fill="none" stroke="#3a4a60" stroke-width="1" stroke-dasharray="3,2"/>`;
+  " fill="none" stroke="#3a4a60" stroke-width="1" stroke-dasharray="3,2"/>
+  <rect x="${BAR_X}" y="${ZIGZAG_Y1}" width="${BAR_W}" height="${ZIGZAG_Y2-ZIGZAG_Y1}" fill="#0c1220"/>
+  <text x="${BAR_X+BAR_W/2}" y="${(ZIGZAG_Y1+ZIGZAG_Y2)/2+4}"
+    fill="#2a3552" font-size="8.5" text-anchor="middle" font-family="Consolas,monospace">⋯ 주소 불연속 ⋯</text>`;
 
   // 세그먼트 그리기
   // 주소 라벨 규칙: 중복 방지
@@ -160,34 +164,48 @@ function renderSVG(active, pcStr) {
       font-size="7.5" text-anchor="middle" font-family="Consolas,monospace">${
         seg.id==='k' ? 'S-mode' : seg.id==='sbi' ? 'M-mode' : 'M-mode ROM'}</text>`;
 
-    // 주소 라벨: k와 fw만 addrTop 표시 (sbi는 k.addrBot과 동일하므로 생략)
-    if (seg.id === 'k' || seg.id === 'fw') {
+    // 주소 라벨: 각 세그먼트의 최상단(addrTop)은 세그먼트 위쪽에만 표시
+    // k.addrTop: k 위에, addrBot(=sbi.addrTop): k와 sbi 경계에 한 번만
+    // fw.addrTop: zigzag 이후 fw 위에 표시
+    if (seg.id === 'k') {
+      // 최상단 경계선 + addrTop label (세그먼트 바깥 위쪽)
       html += `<line x1="${BAR_X}" y1="${lay.y}" x2="${BAR_X+BAR_W}" y2="${lay.y}" stroke="#2a3552" stroke-width="0.5"/>`;
-      html += `<text x="${LBL_X}" y="${lay.y + 8}"
-        fill="#8aa0c5" font-size="8.5" font-family="Consolas,monospace">${seg.addrTop}</text>`;
+      html += `<text x="${LBL_X}" y="${lay.y - 2}"
+        fill="#8aa0c5" font-size="8" font-family="Consolas,monospace">${seg.addrTop}</text>`;
+    }
+    if (seg.id === 'fw') {
+      // fw.addrTop: zigzag 아래에 표시
+      html += `<line x1="${BAR_X}" y1="${lay.y}" x2="${BAR_X+BAR_W}" y2="${lay.y}" stroke="#2a3552" stroke-width="0.5"/>`;
+      html += `<text x="${LBL_X}" y="${lay.y + 9}"
+        fill="#8aa0c5" font-size="8" font-family="Consolas,monospace">${seg.addrTop}</text>`;
     }
 
-    // addrBot: 모든 세그먼트 하단에 표시 (경계선 + 주소)
-    html += `<line x1="${BAR_X}" y1="${lay.y+lay.h}" x2="${BAR_X+BAR_W}" y2="${lay.y+lay.h}" stroke="#2a3552" stroke-width="0.8"/>`;
-    html += `<text x="${LBL_X}" y="${lay.y + lay.h + 9}"
-      fill="#8aa0c5" font-size="8.5" font-family="Consolas,monospace">${seg.addrBot}</text>`;
+    // addrBot: 세그먼트 하단 경계선 + 주소 (sbi.addrBot = k/sbi 경계이므로 k 아래 = sbi 위에 표시)
+    const botY = lay.y + lay.h;
+    html += `<line x1="${BAR_X}" y1="${botY}" x2="${BAR_X+BAR_W}" y2="${botY}" stroke="#2a3552" stroke-width="0.8"/>`;
+    // sbi addrBot은 zigzag 바로 위, 다른 건 하단 밖
+    const lblOffY = (seg.id === 'sbi') ? botY - 3 : botY + 9;
+    html += `<text x="${LBL_X}" y="${lblOffY}"
+      fill="#8aa0c5" font-size="8" font-family="Consolas,monospace">${seg.addrBot}</text>`;
   });
 
   // PC 화살표 (왼쪽에서 세그먼트 좌측으로)
   if (pcY !== null) {
     const x2 = BAR_X - 2;
-    const x1 = BAR_X - 44;
+    const x1 = BAR_X - 50;
     html += `<line x1="${x1}" y1="${pcY}" x2="${x2}" y2="${pcY}"
       stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arr-pc)"/>`;
-    html += `<text x="${x1 - 3}" y="${pcY - 2}" fill="#a78bfa" font-size="9"
-      text-anchor="end" font-family="Consolas,monospace" font-weight="bold">PC</text>`;
-    html += `<text x="${x1 - 3}" y="${pcY + 9}" fill="#7a5aff" font-size="7.5"
-      text-anchor="end" font-family="Consolas,monospace">${pcStr}</text>`;
+    // "PC" label above arrow start
+    html += `<text x="${x1}" y="${pcY - 4}" fill="#a78bfa" font-size="9"
+      text-anchor="start" font-family="Consolas,monospace" font-weight="bold">PC</text>`;
+    // address below arrow
+    html += `<text x="${x1}" y="${pcY + 12}" fill="#7a5aff" font-size="7.5"
+      text-anchor="start" font-family="Consolas,monospace">${pcStr}</text>`;
   }
 
   // 방향 라벨
   html += `<text x="4" y="14" fill="#3a4a60" font-size="8" font-family="Consolas,monospace">↑ HIGH</text>`;
-  html += `<text x="4" y="222" fill="#3a4a60" font-size="8" font-family="Consolas,monospace">↓ LOW</text>`;
+  html += `<text x="4" y="236" fill="#3a4a60" font-size="8" font-family="Consolas,monospace">↓ LOW</text>`;
 
   svg.innerHTML = html;
 }
