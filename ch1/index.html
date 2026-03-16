@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>rCore ch1 — 应用程序与基本执行环境</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Consolas,'Courier New',monospace;background:#0c1220;color:#e6edf3;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 20px}
+
+h1{font-size:17px;color:#9fc3ff;margin-bottom:4px;text-align:center;letter-spacing:.5px}
+.sub{font-size:11px;color:#4a5a7a;margin-bottom:36px;text-align:center}
+
+/* ── 플로우 파이프라인 ── */
+.pipeline{display:flex;align-items:stretch;gap:0;margin-bottom:40px;width:100%;max-width:860px}
+
+.phase-block{flex:1;display:flex;flex-direction:column;gap:0}
+.phase-label{font-size:9px;font-weight:bold;letter-spacing:1px;padding:4px 10px;text-align:center;border-radius:3px 3px 0 0}
+.phase-label.build{background:#1a2a10;color:#6abf40;border:1px solid #2a4a1a;border-bottom:none}
+.phase-label.run  {background:#0f1e35;color:#4a90e2;border:1px solid #1a3050;border-bottom:none}
+
+.card-link{display:flex;flex-direction:column;text-decoration:none;color:inherit;
+  background:#0f182b;border:1px solid #1f2d44;padding:18px 16px;
+  transition:border-color .18s,transform .12s,background .18s;position:relative;cursor:pointer}
+.card-link:hover{border-color:#5888ff;background:#111e35;transform:translateY(-2px)}
+.phase-block:first-child .card-link{border-radius:0 0 0 6px}
+.phase-block:last-child  .card-link{border-radius:0 0 6px 0}
+
+.step-num{font-size:22px;font-weight:bold;color:#2a3552;margin-bottom:8px;line-height:1}
+.card-link:hover .step-num{color:#3a5080}
+.card-title{font-size:14px;font-weight:bold;color:#e0eaff;margin-bottom:6px}
+.card-desc{font-size:11px;color:#6a80a5;line-height:1.6;margin-bottom:10px}
+.card-meta{font-size:10px;color:#3a5278}
+.card-arrow{position:absolute;top:50%;right:-1px;transform:translateY(-50%);
+  width:22px;height:22px;background:#0c1220;border:1px solid #2a4060;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:11px;color:#4a6080;z-index:1}
+
+/* ── 플로우 라벨 ── */
+.flow-line{display:flex;align-items:center;justify-content:center;width:100%;max-width:860px;
+  gap:0;margin-bottom:20px;font-size:10px;color:#3a4a60}
+.flow-seg{flex:1;text-align:center;padding:4px 0;border-top:1px dashed #1f2d44}
+.flow-arrow{color:#2a3a55;font-size:14px;flex-shrink:0;padding:0 4px}
+
+/* ── 하단 네비 ── */
+.bottom-nav{display:flex;gap:12px;align-items:center}
+a.home-btn{font-size:11px;color:#4a6080;text-decoration:none;padding:5px 12px;
+  border:1px solid #1f2d44;border-radius:4px}
+a.home-btn:hover{color:#7fb1ff;border-color:#3a5278}
+
+/* ── 태그 ── */
+.tag{display:inline-block;font-size:9px;padding:2px 7px;border-radius:8px;margin-bottom:10px;font-weight:bold}
+.tag.build{background:#1a3010;color:#6abf40;border:1px solid #2a5018}
+.tag.run  {background:#0f1e35;color:#4a90e2;border:1px solid #1a3050}
+</style>
+</head>
+<body>
+
+<h1>rCore ch1 — 应用程序与基本执行环境</h1>
+<p class="sub">① 빌드 → ② 부팅 → ③ 종료 순서로 진행합니다 &nbsp;·&nbsp; 각 카드를 클릭하거나 화살표로 이동하세요</p>
+
+<!-- 파이프라인 -->
+<div class="pipeline">
+
+  <!-- ① layout -->
+  <div class="phase-block">
+    <div class="phase-label build">BUILD TIME</div>
+    <a class="card-link" href="layout/index.html">
+      <div class="step-num">①</div>
+      <span class="tag build">cargo build</span>
+      <div class="card-title">Memory Layout</div>
+      <div class="card-desc">linker.ld 섹션 배치<br>
+        .text → .rodata → .data<br>
+        → .bss.stack (64KB) → .bss<br>
+        ELF 바이너리 생성 완료
+      </div>
+      <div class="card-meta">10 steps · Segment Bar · Linker Symbols</div>
+      <div class="card-arrow">→</div>
+    </a>
+  </div>
+
+  <!-- ② boot -->
+  <div class="phase-block">
+    <div class="phase-label run">RUN TIME</div>
+    <a class="card-link" href="boot/index.html">
+      <div class="step-num">②</div>
+      <span class="tag run">qemu-system-riscv64</span>
+      <div class="card-title">Bare Metal Boot</div>
+      <div class="card-desc">0x1000 Firmware ROM<br>
+        → 0x80000000 RustSBI (M-mode)<br>
+        → 0x80200000 _start (S-mode)<br>
+        → rust_main 진입
+      </div>
+      <div class="card-meta">10 steps · Address Space · CSR State</div>
+      <div class="card-arrow">→</div>
+    </a>
+  </div>
+
+  <!-- ③ shutdown -->
+  <div class="phase-block">
+    <div class="phase-label run">RUN TIME</div>
+    <a class="card-link" href="shutdown/index.html">
+      <div class="step-num">③</div>
+      <span class="tag run">ecall → M-mode</span>
+      <div class="card-title">SBI Shutdown</div>
+      <div class="card-desc">shutdown() → sbi_call(8)<br>
+        ecall: S-mode → M-mode 트랩<br>
+        RustSBI QEMU exit 처리<br>
+        → QEMU process exit(0)
+      </div>
+      <div class="card-meta">8 steps · Privilege Layers · ecall Flow</div>
+    </a>
+  </div>
+
+</div>
+
+<!-- 플로우 라인 -->
+<div class="flow-line">
+  <span class="flow-seg">cargo build → linker.ld → os.bin</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-seg">QEMU 적재 → 0x1000 → SBI → 0x80200000</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-seg">rust_main → shutdown() → ecall → exit</span>
+</div>
+
+<div class="bottom-nav">
+  <a class="home-btn" href="../index.html">← 전체 목록</a>
+  <a class="home-btn" href="../ch3/index.html">ch3 →</a>
+</div>
+
+</body>
+</html>

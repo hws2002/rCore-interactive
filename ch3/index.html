@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>rCore ch3 — 多道程序与分时多任务</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Consolas,'Courier New',monospace;background:#0c1220;color:#e6edf3;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 20px}
+h1{font-size:17px;color:#9fc3ff;margin-bottom:4px;text-align:center;letter-spacing:.5px}
+.sub{font-size:11px;color:#4a5a7a;margin-bottom:36px;text-align:center}
+.pipeline{display:flex;align-items:stretch;gap:0;margin-bottom:40px;width:100%;max-width:620px}
+.phase-block{flex:1;display:flex;flex-direction:column}
+.phase-label{font-size:9px;font-weight:bold;letter-spacing:1px;padding:4px 10px;text-align:center;border-radius:3px 3px 0 0;background:#0f1e35;color:#4a90e2;border:1px solid #1a3050;border-bottom:none}
+.card-link{display:flex;flex-direction:column;text-decoration:none;color:inherit;
+  background:#0f182b;border:1px solid #1f2d44;padding:18px 16px;
+  transition:border-color .18s,transform .12s,background .18s;position:relative;cursor:pointer}
+.card-link:hover{border-color:#5888ff;background:#111e35;transform:translateY(-2px)}
+.phase-block:first-child .card-link{border-radius:0 0 0 6px}
+.phase-block:last-child  .card-link{border-radius:0 0 6px 0}
+.step-num{font-size:22px;font-weight:bold;color:#2a3552;margin-bottom:8px;line-height:1}
+.card-link:hover .step-num{color:#3a5080}
+.card-title{font-size:14px;font-weight:bold;color:#e0eaff;margin-bottom:6px}
+.card-desc{font-size:11px;color:#6a80a5;line-height:1.6;margin-bottom:10px}
+.card-meta{font-size:10px;color:#3a5278}
+.card-arrow{position:absolute;top:50%;right:-1px;transform:translateY(-50%);
+  width:22px;height:22px;background:#0c1220;border:1px solid #2a4060;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:11px;color:#4a6080;z-index:1}
+.flow-line{display:flex;align-items:center;justify-content:center;width:100%;max-width:620px;
+  gap:0;margin-bottom:20px;font-size:10px;color:#3a4a60}
+.flow-seg{flex:1;text-align:center;padding:4px 0;border-top:1px dashed #1f2d44}
+.flow-arrow{color:#2a3a55;font-size:14px;flex-shrink:0;padding:0 4px}
+.bottom-nav{display:flex;gap:12px;align-items:center}
+a.home-btn{font-size:11px;color:#4a6080;text-decoration:none;padding:5px 12px;border:1px solid #1f2d44;border-radius:4px}
+a.home-btn:hover{color:#7fb1ff;border-color:#3a5278}
+.tag{display:inline-block;font-size:9px;padding:2px 7px;border-radius:8px;margin-bottom:10px;font-weight:bold;background:#0f1e35;color:#4a90e2;border:1px solid #1a3050}
+</style>
+</head>
+<body>
+
+<h1>rCore ch3 — 多道程序与分时多任务</h1>
+<p class="sub">① 태스크 적재 → ② 컨텍스트 스위치 순서로 진행합니다</p>
+
+<div class="pipeline">
+
+  <!-- ① load -->
+  <div class="phase-block">
+    <div class="phase-label">부팅 직후 1회</div>
+    <a class="card-link" href="load/index.html">
+      <div class="step-num">①</div>
+      <span class="tag">kernel init</span>
+      <div class="card-title">Task Load</div>
+      <div class="card-desc">앱 바이너리 물리 메모리 적재<br>
+        TaskControlBlock (TCB) 빌드<br>
+        TrapContext / TaskContext 초기화<br>
+        run_first_task() → __switch
+      </div>
+      <div class="card-meta">9 steps · Task Table · Kernel State</div>
+      <div class="card-arrow">→</div>
+    </a>
+  </div>
+
+  <!-- ② switch -->
+  <div class="phase-block">
+    <div class="phase-label">타이머 인터럽트마다 반복</div>
+    <a class="card-link" href="switch/index.html">
+      <div class="step-num">②</div>
+      <span class="tag">timer interrupt</span>
+      <div class="card-title">Task Switch</div>
+      <div class="card-desc">__alltraps → TrapContext 저장<br>
+        trap_handler → suspend_current<br>
+        __switch → TaskContext 교환<br>
+        __restore → sret → 다음 앱
+      </div>
+      <div class="card-meta">46 steps · SVG Memory · Register File</div>
+    </a>
+  </div>
+
+</div>
+
+<div class="flow-line">
+  <span class="flow-seg">앱 적재 → TCB 초기화 → run_first_task</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-seg">타이머 → __alltraps → __switch → __restore → sret</span>
+</div>
+
+<div class="bottom-nav">
+  <a class="home-btn" href="../index.html">← 전체 목록</a>
+  <a class="home-btn" href="../ch1/index.html">← ch1</a>
+</div>
+
+</body>
+</html>
