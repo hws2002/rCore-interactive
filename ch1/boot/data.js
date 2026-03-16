@@ -76,6 +76,23 @@ const CODE_ENTRY = [
   'boot_stack_top:',
 ];
 
+const CODE_RUST_MAIN = [
+  '// os/src/main.rs',
+  'core::arch::global_asm!(include_str!("entry.asm"));',
+  '',
+  '#[no_mangle]',
+  'pub fn rust_main() -> ! {',
+  '    clear_bss();',
+  '    shutdown();',
+  '}',
+  '',
+  'fn clear_bss() {',
+  '    extern "C" { fn sbss(); fn ebss(); }',
+  '    (sbss as usize..ebss as usize)',
+  '        .for_each(|a| unsafe { (a as *mut u8).write_volatile(0) });',
+  '}',
+];
+
 // ── 스텝 데이터 ──
 const STEPS = [
   {
@@ -153,20 +170,38 @@ const STEPS = [
   },
   {
     title: '_start: la sp, boot_stack_top',
-    file: 'os/src/entry.asm @ 0x80200000',
+    file: 'os/src/entry.asm @ 0x80200000 (런타임)',
     code: CODE_ENTRY, line: 4,
     active: ['k'],
     regs: { PC:'0x80200000', mode:'S', mepc:'0x80200000', mstatus:'0x00000100' },
-    desc: '커널의 첫 번째 명령이 실행됩니다.\n\n`la sp, boot_stack_top`\n\n• boot_stack_top ≈ 0x80213000 (linker.ld에서 결정)\n• .bss.stack 섹션에 4096×16=64KB 스택 공간 예약\n• sp를 설정해야 함수 호출(call)이 가능!\n\n스택은 높은 주소(top)에서 아래로 자랍니다.',
-    detail: 'boot_stack_top은 .bss.stack 섹션 끝 주소. la = lui + addi (2개 명령으로 확장됨).',
+    desc: 'CPU가 0x80200000에서 첫 명령을 실행합니다.\n\n`la sp, boot_stack_top`\n  = sp ← 0x80214000 (빌드타임에 링커가 계산한 값)\n\nsp가 없으면 call 명령 즉시 크래시 —\n그래서 rust_main 호출 전에 반드시 sp를 초기화해야 합니다.\n\n스택은 높은 주소(top)에서 아래로 자랍니다.',
+    detail: 'la = lui + addi 두 명령어로 확장됩니다. boot_stack_top 주소는 빌드타임에 링커가 확정하여 바이너리에 인코딩되어 있습니다.',
   },
   {
-    title: 'call rust_main → Rust 커널 진입!',
-    file: 'os/src/entry.asm → os/src/main.rs',
+    title: 'call rust_main → Rust 커널 진입',
+    file: 'os/src/entry.asm → os/src/main.rs (런타임)',
     code: CODE_ENTRY, line: 5,
     active: ['k'],
-    regs: { PC:'0x80200018', mode:'S', mepc:'0x80200000', mstatus:'0x00000100' },
-    desc: '`call rust_main`으로 Rust 커널에 진입합니다.\n\nrust_main 에서:\n• clear_bss(): .bss 섹션을 0으로 초기화\n• logging::init()\n• println!("[kernel] Hello, world!")\n• 메모리 레이아웃 정보 출력 (stext/etext/...)\n• QEMU 종료 (exit_success)\n\n裸机 환경에서 Rust 코드가 성공적으로 실행됩니다!',
-    detail: 'call = auipc ra, offset + jalr ra, 0(ra). rust_main은 #[no_mangle]로 링크 심볼명 보존.',
+    regs: { PC:'0x80200010', mode:'S', mepc:'0x80200000', mstatus:'0x00000100' },
+    desc: '`call rust_main`으로 Rust 함수로 점프합니다.\n\ncall = auipc ra, offset + jalr ra\n  → ra(반환주소) 저장 후 rust_main으로 점프\n\n`#[no_mangle]` 덕분에 링커가 rust_main 심볼을 찾을 수 있습니다.\n없으면 링크 실패: "undefined symbol: rust_main"',
+    detail: 'global_asm!(include_str!("entry.asm"))으로 entry.asm이 main.rs와 같은 컴파일 단위에 포함됩니다.',
+  },
+  {
+    title: 'rust_main: clear_bss() — .bss 영역 0으로 초기화',
+    file: 'os/src/main.rs (런타임)',
+    code: CODE_RUST_MAIN, line: 5,
+    active: ['k'],
+    regs: { PC:'0x80200100', mode:'S', mepc:'0x80200000', mstatus:'0x00000100' },
+    desc: 'rust_main의 첫 번째 작업: clear_bss()\n\nsbss ~ ebss 범위(~0x80214000 ~ ~0x80215000)를 0으로 초기화합니다.\n\n이유:\n  ELF .bss 섹션은 파일에 초기값이 없습니다.\n  (크기만 기록, 실제 데이터 없음)\n  → 런타임에 소프트웨어가 직접 0으로 채워야 합니다.\n\nsbss/ebss 심볼은 linker.ld에서 정의됩니다.',
+    detail: 'write_volatile: 컴파일러 최적화로 루프가 제거되지 않도록 volatile write를 사용합니다.',
+  },
+  {
+    title: 'shutdown() → QEMU 종료',
+    file: 'os/src/main.rs → os/src/sbi.rs (런타임)',
+    code: CODE_RUST_MAIN, line: 6,
+    active: ['k'],
+    regs: { PC:'0x80200200', mode:'S', mepc:'0x80200000', mstatus:'0x00000100' },
+    desc: 'rust_main이 shutdown()을 호출하여 QEMU를 종료합니다.\n\nshutdown() → sbi_call(SBI_SHUTDOWN=8)\n  → a7=8 설정 후 ecall\n  → S-mode에서 M-mode(RustSBI)로 트랩\n  → RustSBI: QEMU test-finisher에 0x5555 write\n  → QEMU 프로세스 exit(0)\n\n裸机 환경에서 Rust 커널이 성공적으로 실행되고 종료됩니다!',
+    detail: '이 shutdown 흐름 전체는 ch1/shutdown에서 자세히 다룹니다.',
   },
 ];
