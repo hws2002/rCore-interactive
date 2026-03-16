@@ -79,13 +79,13 @@ const CODE_ENTRY = [
 // ── 스텝 데이터 ──
 const STEPS = [
   {
-    title: 'QEMU 실행 — ch1_layout에서 만든 os.bin 적재',
+    title: 'QEMU 실행 — ch1_build에서 만든 os.bin 적재',
     file: 'Makefile / shell',
     code: CODE_QEMU, line: 0,
     active: [],
-    prevPage: '../layout/index.html',
+    prevPage: '../build/index.html',
     regs: { PC:'─', mode:'─', mepc:'─', mstatus:'─' },
-    desc: '← ch1_layout에서 linker.ld로 올바르게 배치된\nos.bin ELF 바이너리를 QEMU가 적재합니다.\n\n핵심 파라미터:\n• -machine virt: QEMU의 가상 RISC-V 보드\n• -bios rustsbi-qemu.bin → 0x80000000에 적재\n• -device loader,addr=0x80200000 → os.bin을 0x80200000에 적재\n\n아직 CPU는 동작 전 상태입니다.',
+    desc: '← ch1_build에서 linker.ld로 올바르게 배치된\nos.bin ELF 바이너리를 QEMU가 적재합니다.\n\n핵심 파라미터:\n• -machine virt: QEMU의 가상 RISC-V 보드\n• -bios rustsbi-qemu.bin → 0x80000000에 적재\n• -device loader,addr=0x80200000 → os.bin을 0x80200000에 적재\n\n아직 CPU는 동작 전 상태입니다.',
     detail: 'KERNEL_ENTRY_PA = 0x80200000은 linker.ld의 BASE_ADDRESS와 반드시 일치해야 합니다.',
   },
   {
