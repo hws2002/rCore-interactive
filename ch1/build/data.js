@@ -145,8 +145,8 @@ const STEPS = [
     sections: [],
     highlight: [],
     symbols: { BASE: '0x80200000' },
-    desc: '링커 스크립트의 헤더 부분입니다.\n\n• OUTPUT_ARCH(riscv): RISC-V 아키텍처 ELF 출력\n• ENTRY(_start): ELF entry point = _start 심볼\n• BASE_ADDRESS = 0x80200000\n  → 커널 물리 베이스 주소 (RustSBI가 적재하는 곳)\n• . = BASE_ADDRESS\n  → 현재 위치 카운터를 베이스로 설정\n\nRustSBI의 mepc도 0x80200000이므로 반드시 일치해야 합니다.',
-    detail: 'BASE_ADDRESS는 qemu -device loader,addr=0x80200000 파라미터와, RustSBI의 mepc 설정값과 반드시 동일해야 합니다.',
+    desc: '링커 스크립트의 헤더 부분입니다.\n\n• OUTPUT_ARCH(riscv): RISC-V 아키텍처 ELF 출력\n• ENTRY(_start): ELF entry point = _start 심볼\n• BASE_ADDRESS = 0x80200000\n  → 커널 물리 베이스 주소 (RustSBI가 적재하는 곳)\n• . = BASE_ADDRESS\n  → 현재 위치 카운터를 베이스로 설정\n\n왜 0x80200000인가?\n  QEMU virt 보드: DRAM 시작 = 0x80000000 (하드웨어 스펙)\n  RustSBI: 앞 2MB(0x80000000~0x80200000)를 자신이 사용\n  → 커널은 0x80200000부터 시작하는 것이 관례\n\n이 값은 세 군데가 서로 약속한 값입니다:\n  ① RustSBI 소스: mepc = 0x80200000 (하드코딩)\n  ② QEMU 실행: -device loader,addr=0x80200000\n  ③ linker.ld: BASE_ADDRESS = 0x80200000  ← 지금 여기\n  셋 중 하나라도 다르면 커널이 실행되지 않습니다.',
+    detail: 'RustSBI의 mepc는 rustsbi-qemu 소스에 KERNEL_ENTRY = 0x8020_0000으로 하드코딩되어 있습니다. RISC-V 생태계 관례(convention)이며, 하드웨어 스펙이 강제하는 값은 아닙니다.',
   },
   {
     title: '.text 섹션: .text.entry 우선 배치',
