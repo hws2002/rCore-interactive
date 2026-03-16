@@ -219,7 +219,7 @@ const STEPS = [
     code: CODE_BUILD_DONE, line: 6,
     sections: ['text', 'rodata', 'data', 'stack', 'bss'],
     highlight: [],
-    nextPage: '../ch1_boot/index.html',
+    nextPage: '../boot/index.html',
     symbols: {
       stext:     '0x80200000',
       etext:     '0x80202000',

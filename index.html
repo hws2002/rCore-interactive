@@ -25,37 +25,37 @@ h1{color:#58a6ff;font-size:22px;margin-bottom:8px;text-align:center;letter-spaci
 <h1>rCore Interactive Visualizers</h1>
 <p class="subtitle">각 시각화를 클릭하여 실행하세요 — file:// 로컬 실행 지원</p>
 <div class="grid">
-  <a class="card" href="ch1_layout/index.html">
+  <a class="card" href="ch1/layout/index.html">
     <span class="card-badge badge-ch1">ch1 · ①</span>
     <h2>Memory Layout</h2>
     <p>cargo build → linker.ld 섹션 배치 → ELF 빌드 완료. .text.entry 우선 배치부터 스택 초기화까지 단계별 시각화.</p>
     <div class="meta">9 steps · Segment Bar · Build Time</div>
   </a>
-  <a class="card" href="ch1_boot/index.html">
+  <a class="card" href="ch1/boot/index.html">
     <span class="card-badge badge-ch1">ch1 · ②</span>
     <h2>Bare Metal Boot</h2>
     <p>QEMU 파워온 → 0x1000 Firmware → 0x80000000 RustSBI → 0x80200000 커널 진입까지 10스텝으로 시각화.</p>
     <div class="meta">10 steps · Address Space · Run Time</div>
   </a>
-  <a class="card" href="ch1_shutdown/index.html">
+  <a class="card" href="ch1/shutdown/index.html">
     <span class="card-badge badge-ch1">ch1 · ③</span>
     <h2>SBI Shutdown</h2>
     <p>shutdown() → sbi_call(8) → ecall → M-mode 종료 흐름. 특권 레벨 전환 레이어 시각화.</p>
     <div class="meta">8 steps · Privilege Layers · ecall Flow</div>
   </a>
-  <a class="card" href="ch3_switch/index.html">
+  <a class="card" href="ch3/switch/index.html">
     <span class="card-badge badge-ch3">ch3</span>
     <h2>Task Switch</h2>
     <p>타이머 인터럽트 → __alltraps → trap_handler → __switch → __restore → Task1 실행까지 전 과정을 46스텝으로 세분화하여 시각화.</p>
     <div class="meta">46 steps · SVG Memory · Register File · Stack Trace</div>
   </a>
-  <a class="card" href="ch3_load/index.html">
+  <a class="card" href="ch3/load/index.html">
     <span class="card-badge badge-ch3">ch3</span>
     <h2>Task Load</h2>
     <p>부팅 → 앱 로드 → TCB 빌드 → run_first_task 흐름. 물리 메모리 슬롯과 태스크 테이블 변화를 단계별로 확인.</p>
     <div class="meta">9 steps · Task Table · Kernel State</div>
   </a>
-  <a class="card" href="boot_chain/index.html">
+  <a class="card" href="ch1/boot_chain/index.html">
     <span class="card-badge badge-boot">boot</span>
     <h2>Boot Chain</h2>
     <p>0x1000 펌웨어 → 0x80000000 RustSBI → 0x80200000 커널까지의 bare-metal 부팅 체인 시각화.</p>
