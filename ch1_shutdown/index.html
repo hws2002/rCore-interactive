@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>rCore ch1 — SBI Shutdown</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Consolas,'Courier New',monospace;background:#0c1220;color:#e6edf3;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+h1{font-size:13px;color:#9fc3ff;background:#151c2f;border-bottom:1px solid #2a3552;padding:7px 12px;flex-shrink:0}
+#main{flex:1;display:grid;grid-template-columns:50% 50%;min-height:0;overflow:hidden}
+/* ─── LEFT ─── */
+#left{background:#0b1020;border-right:1px solid #2a3552;display:flex;flex-direction:column;padding:8px;gap:8px;overflow:hidden}
+#priv-wrap h2,#reg-wrap h2{font-size:10px;color:#7fb1ff;margin-bottom:5px;letter-spacing:.5px}
+#priv-wrap{flex:0 0 auto}
+#priv-svg-wrap svg{display:block;width:100%}
+#reg-wrap{flex:1;overflow-y:auto}
+#reg-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.rv{display:flex;justify-content:space-between;align-items:center;border:1px solid #1f2d44;border-radius:4px;padding:7px 10px;background:#0f182b;font-size:12px}
+.rk{color:#7fa8d5}.rvv{color:#e8f0ff}
+/* ─── RIGHT ─── */
+#right{display:flex;flex-direction:column;padding:8px;gap:7px;overflow:hidden;background:#0e1528}
+#step-bar{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:7px 10px;flex-shrink:0}
+#step-row{display:flex;align-items:baseline;gap:8px}
+#step-num{font-size:11px;color:#7fb1ff;font-weight:bold;min-width:70px}
+#step-title{font-size:13px;font-weight:bold;color:#f0f6fc}
+#step-file{font-size:10px;color:#7a90b5;margin-top:2px}
+#nav{display:flex;gap:8px;align-items:center;margin-top:6px}
+button{background:#1b2740;border:1px solid #2a3552;color:#d8e6ff;padding:4px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:inherit}
+button:hover:not(:disabled){border-color:#58a6ff;color:#9fc3ff}
+button:disabled{opacity:.35;cursor:not-allowed}
+#prog-bar{flex:1;height:5px;background:#1c2842;border-radius:3px;overflow:hidden}
+#prog-fill{height:100%;width:0;background:linear-gradient(90deg,#3f7dff,#7fb1ff);transition:width .2s}
+#code-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:7px;flex:0 0 auto;max-height:240px;overflow:hidden;display:flex;flex-direction:column}
+#code-label{font-size:10px;color:#7fb1ff;margin-bottom:4px}
+#code-lines{font-size:11.5px;line-height:1.5;white-space:pre;overflow-y:auto;flex:1}
+.cl{display:block;padding:0 2px}
+.cl.hl{background:#352c0a;color:#ffd166;border-radius:2px}
+.cl.done{color:#3a4a60}
+#desc-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:8px 10px;flex:1;overflow-y:auto}
+#desc-title{font-size:11px;color:#ffd166;margin-bottom:5px}
+#desc-text{font-size:12px;color:#c8d8f0;line-height:1.6;white-space:pre-wrap}
+#desc-detail{font-size:10.5px;color:#5a7aaa;margin-top:6px;padding-top:6px;border-top:1px solid #1f2d44;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>rCore ch1 — 关机过程: rust_main → shutdown() → sbi_call(8) → ecall → M-mode → QEMU exit</h1>
+<div id="main">
+
+<!-- LEFT: 특권 레벨 레이어 + 레지스터 -->
+<div id="left">
+  <div id="priv-wrap">
+    <h2>PRIVILEGE LAYERS</h2>
+    <div id="priv-svg-wrap">
+      <svg id="priv-svg" viewBox="0 0 260 200" style="display:block;width:100%"></svg>
+    </div>
+  </div>
+  <div id="reg-wrap">
+    <h2>REGISTER STATE</h2>
+    <div id="reg-grid"></div>
+  </div>
+</div>
+
+<!-- RIGHT: 스텝 정보 + 코드 + 설명 -->
+<div id="right">
+  <div id="step-bar">
+    <div id="step-row">
+      <span id="step-num">Step 1 / 8</span>
+      <span id="step-title">—</span>
+    </div>
+    <div id="step-file">—</div>
+    <div id="nav">
+      <button id="btn-prev" onclick="go(-1)">◄ Prev</button>
+      <div id="prog-bar"><div id="prog-fill"></div></div>
+      <button id="btn-next" onclick="go(1)">Next ►</button>
+    </div>
+  </div>
+
+  <div id="code-wrap">
+    <div id="code-label">소스 코드</div>
+    <div id="code-lines"></div>
+  </div>
+
+  <div id="desc-wrap">
+    <div id="desc-title">💡 설명</div>
+    <div id="desc-text"></div>
+    <div id="desc-detail"></div>
+  </div>
+</div>
+
+</div>
+
+<script src="../ch1_shutdown/data.js"></script>
+<script>
+let step = 0;
+
+// ── 특권 레벨 레이어 SVG ──
+// 3개 레이어: M-mode(top), S-mode(mid), U-mode(bot)
+// 화살표: ecall (S→M), mret (M→S)
+const LAYERS = [
+  { id:'m', label:'M-mode (Machine)', sublabel:'RustSBI @ 0x80000000', y:10,  h:55, color:'#3a1a5a', border:'#9b59b6', text:'#d7aefb' },
+  { id:'s', label:'S-mode (Supervisor)', sublabel:'Kernel @ 0x80200000', y:78, h:55, color:'#1a2a5a', border:'#3a7dff', text:'#80b0ff' },
+  { id:'u', label:'U-mode (User)', sublabel:'(Apps — not used in ch1)', y:146, h:46, color:'#1a3a2a', border:'#3a8c5a', text:'#7dffba' },
+];
+
+function renderPrivSVG(mode, ecall) {
+  const svg = document.getElementById('priv-svg');
+  let html = '';
+
+  // 마커 정의
+  html += `<defs>
+    <marker id="arr-up" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#ff6b6b"/>
+    </marker>
+    <marker id="arr-dn" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#6bffb0"/>
+    </marker>
+  </defs>`;
+
+  LAYERS.forEach(l => {
+    const isActive = (l.id === mode) || (ecall && (l.id === 's' || l.id === 'm')) || mode === 'off';
+    const opacity = mode === 'off' ? 0.2 : (l.id === mode || (ecall && (l.id === 's' || l.id === 'm'))) ? 1 : 0.3;
+
+    html += `<rect x="20" y="${l.y}" width="195" height="${l.h}"
+      fill="${l.color}" fill-opacity="${opacity}"
+      stroke="${l.border}" stroke-opacity="${opacity}" stroke-width="${l.id === mode ? 2 : 1}" rx="4"/>`;
+    html += `<text x="30" y="${l.y + 18}" fill="${l.text}" fill-opacity="${opacity}"
+      font-size="11" font-family="Consolas,monospace" font-weight="bold">${l.label}</text>`;
+    html += `<text x="30" y="${l.y + 33}" fill="${l.text}" fill-opacity="${opacity * 0.7}"
+      font-size="9" font-family="Consolas,monospace">${l.sublabel}</text>`;
+  });
+
+  // ecall 화살표 (S→M)
+  if (ecall) {
+    const sTop = LAYERS[0].y + LAYERS[0].h; // M-mode bottom
+    const sMid = LAYERS[1].y;               // S-mode top
+    // 화살표: S-mode top → M-mode bottom (위로)
+    html += `<line x1="220" y1="${LAYERS[1].y + 5}" x2="220" y2="${LAYERS[0].y + LAYERS[0].h - 2}"
+      stroke="#ff6b6b" stroke-width="2" marker-end="url(#arr-up)"/>`;
+    html += `<text x="224" y="${(LAYERS[0].y + LAYERS[0].h + LAYERS[1].y) / 2 + 4}"
+      fill="#ff6b6b" font-size="9.5" font-family="Consolas,monospace">ecall</text>`;
+    html += `<text x="224" y="${(LAYERS[0].y + LAYERS[0].h + LAYERS[1].y) / 2 + 15}"
+      fill="#ff4444" font-size="8" font-family="Consolas,monospace">S→M</text>`;
+  }
+
+  // 종료 상태
+  if (mode === 'off') {
+    html += `<text x="117" y="105" fill="#484f58" font-size="14" font-family="Consolas,monospace"
+      text-anchor="middle">POWERED OFF</text>`;
+  }
+
+  svg.innerHTML = html;
+}
+
+// ── 레지스터 렌더링 ──
+const REG_KEYS = [['a7 (EID)', 'a7'], ['a0', 'a0'], ['Mode', 'mode'], ['PC', 'PC']];
+
+function renderRegs(regs) {
+  const el = document.getElementById('reg-grid');
+  let html = '';
+  REG_KEYS.forEach(([label, key]) => {
+    const val = regs[key] !== undefined ? regs[key] : '─';
+    html += `<div class="rv"><span class="rk">${label}</span><span class="rvv">${val}</span></div>`;
+  });
+  el.innerHTML = html;
+}
+
+// ── 코드 렌더링 ──
+function renderCode(code, curLine) {
+  const el = document.getElementById('code-lines');
+  let html = '';
+  code.forEach((t, i) => {
+    let cls = 'cl';
+    if (i < curLine) cls += ' done';
+    if (i === curLine) cls += ' hl';
+    html += `<span class="${cls}">${String(i+1).padStart(2,' ')}  ${t}</span>\n`;
+  });
+  el.innerHTML = html;
+  const lines = el.querySelectorAll('.cl');
+  if (lines[curLine]) lines[curLine].scrollIntoView({block:'nearest'});
+}
+
+// ── 전체 렌더 ──
+function render() {
+  const st = STEPS[step];
+  document.getElementById('step-num').textContent = `Step ${step + 1} / ${STEPS.length}`;
+  document.getElementById('step-title').textContent = st.title;
+  document.getElementById('step-file').textContent = st.file;
+  document.getElementById('prog-fill').style.width = `${(step / (STEPS.length - 1)) * 100}%`;
+  document.getElementById('btn-prev').disabled = step === 0;
+  document.getElementById('btn-next').disabled = step === STEPS.length - 1;
+
+  renderCode(st.code, st.line);
+  renderPrivSVG(st.mode, st.ecall);
+  renderRegs(st.regs);
+
+  document.getElementById('desc-text').textContent = st.desc;
+  document.getElementById('desc-detail').textContent = st.detail || '';
+}
+
+function go(d) {
+  step = Math.max(0, Math.min(STEPS.length - 1, step + d));
+  render();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') go(1);
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') go(-1);
+});
+
+render();
+</script>
+</body>
+</html>

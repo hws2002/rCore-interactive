@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>rCore ch1 — Memory Layout</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Consolas,'Courier New',monospace;background:#0c1220;color:#e6edf3;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+h1{font-size:13px;color:#9fc3ff;background:#151c2f;border-bottom:1px solid #2a3552;padding:7px 12px;flex-shrink:0}
+#main{flex:1;display:grid;grid-template-columns:70% 30%;min-height:0;overflow:hidden}
+/* ─── LEFT ─── */
+#left{background:#0b1020;border-right:1px solid #2a3552;display:flex;flex-direction:column;padding:8px;gap:6px;overflow:hidden}
+#left h2{font-size:10px;color:#7fb1ff;margin-bottom:4px;letter-spacing:.5px}
+#layout-wrap{flex:1;overflow:hidden;display:flex;flex-direction:column}
+#layout-svg-wrap{flex:1;overflow:hidden}
+#layout-svg-wrap svg{display:block;width:100%;height:100%}
+#sym-wrap{flex:0 0 auto;max-height:200px;overflow-y:auto}
+#sym-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.sv{display:flex;justify-content:space-between;align-items:center;border:1px solid #1f2d44;border-radius:3px;padding:5px 8px;background:#0f182b;font-size:11px}
+.sk{color:#7fa8d5}.svv{color:#e8f0ff}
+/* ─── RIGHT ─── */
+#right{display:flex;flex-direction:column;padding:8px;gap:7px;overflow:hidden;background:#0e1528}
+#step-bar{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:7px 10px;flex-shrink:0}
+#step-row{display:flex;align-items:baseline;gap:8px}
+#step-num{font-size:11px;color:#7fb1ff;font-weight:bold;min-width:70px}
+#step-title{font-size:13px;font-weight:bold;color:#f0f6fc}
+#step-file{font-size:10px;color:#7a90b5;margin-top:2px}
+#nav{display:flex;gap:8px;align-items:center;margin-top:6px}
+button{background:#1b2740;border:1px solid #2a3552;color:#d8e6ff;padding:4px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:inherit}
+button:hover:not(:disabled){border-color:#58a6ff;color:#9fc3ff}
+button:disabled{opacity:.35;cursor:not-allowed}
+#prog-bar{flex:1;height:5px;background:#1c2842;border-radius:3px;overflow:hidden}
+#prog-fill{height:100%;width:0;background:linear-gradient(90deg,#3f7dff,#7fb1ff);transition:width .2s}
+#code-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:7px;flex:0 0 auto;max-height:230px;overflow:hidden;display:flex;flex-direction:column}
+#code-label{font-size:10px;color:#7fb1ff;margin-bottom:4px}
+#code-lines{font-size:11.5px;line-height:1.5;white-space:pre;overflow-y:auto;flex:1}
+.cl{display:block;padding:0 2px}
+.cl.hl{background:#352c0a;color:#ffd166;border-radius:2px}
+.cl.done{color:#3a4a60}
+#desc-wrap{background:#121a2d;border:1px solid #2a3552;border-radius:5px;padding:8px 10px;flex:1;overflow-y:auto}
+#desc-title{font-size:11px;color:#ffd166;margin-bottom:5px}
+#desc-text{font-size:12px;color:#c8d8f0;line-height:1.6;white-space:pre-wrap}
+#desc-detail{font-size:10.5px;color:#5a7aaa;margin-top:6px;padding-top:6px;border-top:1px solid #1f2d44;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>rCore ch1 — 设置正确的程序内存布局: linker.ld → .text.entry → sp 초기화 → clear_bss</h1>
+<div id="main">
+
+<!-- LEFT: 섹션 레이아웃 바 + 심볼 -->
+<div id="left">
+  <div id="layout-wrap">
+    <h2>MEMORY LAYOUT (0x80200000 ~)</h2>
+    <div id="layout-svg-wrap">
+      <svg id="layout-svg" viewBox="0 0 280 300" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:100%"></svg>
+    </div>
+  </div>
+  <div id="sym-wrap">
+    <h2>LINKER SYMBOLS</h2>
+    <div id="sym-grid"></div>
+  </div>
+</div>
+
+<!-- RIGHT -->
+<div id="right">
+  <div id="step-bar">
+    <div id="step-row">
+      <span id="step-num">Step 1 / 10</span>
+      <span id="step-title">—</span>
+    </div>
+    <div id="step-file">—</div>
+    <div id="nav">
+      <button id="btn-prev" onclick="go(-1)">◄ Prev</button>
+      <div id="prog-bar"><div id="prog-fill"></div></div>
+      <button id="btn-next" onclick="go(1)">Next ►</button>
+      <button id="btn-next-page" style="display:none;background:#2a1f50;border-color:#a78bfa;color:#c080ff;font-weight:bold">ch1_boot →</button>
+    </div>
+  </div>
+
+  <div id="code-wrap">
+    <div id="code-label">소스 코드</div>
+    <div id="code-lines"></div>
+  </div>
+
+  <div id="desc-wrap">
+    <div id="desc-title">💡 설명</div>
+    <div id="desc-text"></div>
+    <div id="desc-detail"></div>
+  </div>
+</div>
+
+</div>
+
+<script src="../ch1_layout/data.js"></script>
+<script>
+let step = 0;
+
+// ── 섹션 레이아웃 SVG ──
+// 아래에서 위로 쌓이는 방식 (낮은 주소 = 아래)
+const SVG_H = 300;
+const BAR_X = 90;   // 왼쪽 여백 (심볼 라벨용)
+const BAR_W = 100;
+const BASE_Y = 280; // SVG 아래 = 0x80200000
+const TOP_Y  = 20;  // SVG 위 = 높은 주소
+
+// 각 섹션의 고정 Y 위치 (아래에서 위로)
+const SEC_LAYOUT = {
+  text:   { y: 230, h: 42 },
+  rodata: { y: 188, h: 34 },
+  data:   { y: 152, h: 30 },
+  stack:  { y:  80, h: 64 },
+  bss:    { y:  48, h: 26 },
+};
+
+// 섹션별 색상 (ALL_SECTIONS에서 가져오되 여기서도 정의)
+const SEC_COLORS = {
+  text:   { fill:'#1a4a7a', border:'#4a90d9', text:'#80c0ff' },
+  rodata: { fill:'#1a5a3a', border:'#4ad98a', text:'#7dffba' },
+  data:   { fill:'#3a4a1a', border:'#a0c840', text:'#d4f080' },
+  stack:  { fill:'#5a1050', border:'#d44fa0', text:'#ffaae0' },
+  bss:    { fill:'#3a2a1a', border:'#c88040', text:'#ffc080' },
+};
+
+const SEC_LABELS = {
+  text:   '.text',
+  rodata: '.rodata',
+  data:   '.data',
+  stack:  '.bss.stack\n(boot stack 64KB)',
+  bss:    '.bss',
+};
+
+const SEC_ADDRS = {
+  text:   { top:'~0x80202000', bot:'0x80200000' },
+  rodata: { top:'~0x80203000', bot:'~0x80202000' },
+  data:   { top:'~0x80204000', bot:'~0x80203000' },
+  stack:  { top:'~0x80214000', bot:'~0x80204000' },
+  bss:    { top:'~0x80215000', bot:'~0x80214000' },
+};
+
+function renderLayoutSVG(visibleSections, highlightSections, symbols) {
+  const svg = document.getElementById('layout-svg');
+  const LBL_X = BAR_X + BAR_W + 5;
+  let html = '';
+
+  // 마커
+  html += `<defs>
+    <marker id="arr-sp" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#4ade80"/>
+    </marker>
+  </defs>`;
+
+  // 베이스 라인 + 주소 (0x80200000) — 항상 표시
+  html += `<line x1="${BAR_X}" y1="${BASE_Y}" x2="${BAR_X+BAR_W}" y2="${BASE_Y}"
+    stroke="#3a4a60" stroke-width="1"/>`;
+  html += `<text x="${LBL_X}" y="${BASE_Y + 8}"
+    fill="#7a90b5" font-size="8" font-family="Consolas,monospace">0x80200000</text>`;
+
+  // 섹션들 그리기
+  ALL_SECTIONS.forEach(sec => {
+    const lay = SEC_LAYOUT[sec.id];
+    const col = SEC_COLORS[sec.id];
+    if (!lay || !col) return;
+
+    const isVisible = visibleSections.includes(sec.id);
+    const isHL      = highlightSections.includes(sec.id);
+    const opacity   = isVisible ? 1 : 0.1;
+    const sw        = isHL ? 2 : 0.8;
+
+    html += `<rect x="${BAR_X}" y="${lay.y}" width="${BAR_W}" height="${lay.h}"
+      fill="${col.fill}" fill-opacity="${opacity}"
+      stroke="${col.border}" stroke-opacity="${isVisible ? 1 : 0.15}" stroke-width="${sw}" rx="2"/>`;
+
+    if (isVisible) {
+      // 라벨 (내부)
+      const lines = SEC_LABELS[sec.id].split('\n');
+      const cy = lay.y + lay.h / 2;
+      if (lines.length === 1) {
+        html += `<text x="${BAR_X + BAR_W/2}" y="${cy + 4}"
+          fill="${col.text}" font-size="10" text-anchor="middle" font-family="Consolas,monospace">${lines[0]}</text>`;
+      } else {
+        html += `<text x="${BAR_X + BAR_W/2}" y="${cy - 3}"
+          fill="${col.text}" font-size="9" text-anchor="middle" font-family="Consolas,monospace">${lines[0]}</text>`;
+        html += `<text x="${BAR_X + BAR_W/2}" y="${cy + 9}"
+          fill="${col.text}" fill-opacity="0.75" font-size="7.5" text-anchor="middle" font-family="Consolas,monospace">${lines[1]}</text>`;
+      }
+
+      // 주소: 각 섹션의 상단 경계선에만 한 번 표시 (bot 주소 = 다음 섹션의 top이므로 생략)
+      const addr = SEC_ADDRS[sec.id];
+      html += `<line x1="${BAR_X}" y1="${lay.y}" x2="${BAR_X+BAR_W}" y2="${lay.y}"
+        stroke="#2a3552" stroke-width="0.7"/>`;
+      html += `<text x="${LBL_X}" y="${lay.y + 8}"
+        fill="#7a90b5" font-size="8" font-family="Consolas,monospace">${addr.top}</text>`;
+    }
+  });
+
+  // sp 화살표: symbols.sp 있을 때 boot_stack_top(= stack 상단) 위치에 표시
+  if (symbols && symbols.sp) {
+    const spY = SEC_LAYOUT.stack.y; // stack 상단 = boot_stack_top
+    const ax2 = BAR_X - 3;
+    const ax1 = BAR_X - 52;
+    html += `<line x1="${ax1}" y1="${spY}" x2="${ax2}" y2="${spY}"
+      stroke="#4ade80" stroke-width="1.8" marker-end="url(#arr-sp)"/>`;
+    html += `<text x="${ax1 - 3}" y="${spY - 3}" fill="#4ade80" font-size="9"
+      text-anchor="end" font-family="Consolas,monospace" font-weight="bold">sp</text>`;
+    html += `<text x="${ax1 - 3}" y="${spY + 9}" fill="#4ade80" font-size="7.5"
+      text-anchor="end" font-family="Consolas,monospace">0x80214000</text>`;
+  }
+
+  // 방향 라벨
+  html += `<text x="4" y="14" fill="#3a4a60" font-size="8" font-family="Consolas,monospace">↑ HIGH</text>`;
+  html += `<text x="4" y="${BASE_Y + 14}" fill="#3a4a60" font-size="8" font-family="Consolas,monospace">↓ LOW</text>`;
+
+  svg.innerHTML = html;
+}
+
+// ── 심볼 테이블 ──
+function renderSymbols(symbols) {
+  const el = document.getElementById('sym-grid');
+  const entries = Object.entries(symbols);
+  if (entries.length === 0) {
+    el.innerHTML = '<div style="font-size:10px;color:#3a4a60;padding:4px">─ 아직 심볼 없음 ─</div>';
+    return;
+  }
+  let html = '';
+  entries.forEach(([k, v]) => {
+    html += `<div class="sv"><span class="sk">${k}</span><span class="svv">${v}</span></div>`;
+  });
+  el.innerHTML = html;
+}
+
+// ── 코드 렌더 ──
+function renderCode(code, curLine) {
+  const el = document.getElementById('code-lines');
+  let html = '';
+  code.forEach((t, i) => {
+    let cls = 'cl';
+    if (i < curLine) cls += ' done';
+    if (i === curLine) cls += ' hl';
+    html += `<span class="${cls}">${String(i+1).padStart(2,' ')}  ${t}</span>\n`;
+  });
+  el.innerHTML = html;
+  const lines = el.querySelectorAll('.cl');
+  if (lines[curLine]) lines[curLine].scrollIntoView({block:'nearest'});
+}
+
+// ── 전체 렌더 ──
+function render() {
+  const st = STEPS[step];
+  document.getElementById('step-num').textContent = `Step ${step + 1} / ${STEPS.length}`;
+  document.getElementById('step-title').textContent = st.title;
+  document.getElementById('step-file').textContent = st.file;
+  document.getElementById('prog-fill').style.width = `${(step / (STEPS.length - 1)) * 100}%`;
+  document.getElementById('btn-prev').disabled = step === 0;
+  document.getElementById('btn-next').disabled = step === STEPS.length - 1;
+
+  // 마지막 스텝에서 nextPage 버튼 표시
+  const st2 = STEPS[step];
+  const nextBtn = document.getElementById('btn-next-page');
+  if (nextBtn) {
+    if (step === STEPS.length - 1 && st2.nextPage) {
+      nextBtn.style.display = 'inline-block';
+      nextBtn.onclick = () => location.href = st2.nextPage;
+    } else {
+      nextBtn.style.display = 'none';
+    }
+  }
+
+  renderCode(st.code, st.line);
+  renderLayoutSVG(st.sections || [], st.highlight || [], st.symbols || {});
+  renderSymbols(st.symbols || {});
+
+  document.getElementById('desc-text').textContent = st.desc;
+  document.getElementById('desc-detail').textContent = st.detail || '';
+}
+
+function go(d) {
+  step = Math.max(0, Math.min(STEPS.length - 1, step + d));
+  render();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') go(1);
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') go(-1);
+});
+
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,172 @@
+// ── ch1_boot/data.js ──
+// 裸机启动过程: QEMU → 0x1000 Firmware → 0x80000000 RustSBI → 0x80200000 Kernel
+
+// 주소 공간 세그먼트 (SVG 렌더링용)
+const SEGMENTS = [
+  { id:'k',   label:'KERNEL_BIN',          addrTop:'~0x80280000', addrBot:'0x80200000', color:'#1a5c3a', textColor:'#7dffba' },
+  { id:'sbi', label:'RustSBI (M-mode)',     addrTop:'0x80200000',  addrBot:'0x80000000', color:'#1e3f7a', textColor:'#80c0ff' },
+  { id:'fw',  label:'QEMU Firmware ROM',   addrTop:'~0x00002000', addrBot:'0x00001000', color:'#3a3a5a', textColor:'#b0b0e0' },
+];
+
+// SVG 내 각 세그먼트의 Y 위치 (고정 레이아웃)
+const SEG_LAYOUT = {
+  k:   { y: 28, h: 46 },
+  sbi: { y: 82, h: 55 },
+  // y=145~170: zigzag gap
+  fw:  { y: 172, h: 38 },
+};
+
+// PC 값 → SVG Y 좌표 매핑 (세그먼트 중심 기준)
+function pcToY(pcStr) {
+  if (!pcStr || pcStr === '─') return null;
+  const addr = parseInt(pcStr, 16);
+  if (isNaN(addr)) return null;
+  if (addr >= 0x80200000) return SEG_LAYOUT.k.y + SEG_LAYOUT.k.h / 2;
+  if (addr >= 0x80000000) return SEG_LAYOUT.sbi.y + SEG_LAYOUT.sbi.h / 2;
+  if (addr >= 0x1000)     return SEG_LAYOUT.fw.y + SEG_LAYOUT.fw.h / 2;
+  return null;
+}
+
+// ── 코드 스니펫 ──
+const CODE_QEMU = [
+  'qemu-system-riscv64 \\',
+  '  -machine virt \\',
+  '  -nographic \\',
+  '  -bios ../bootloader/rustsbi-qemu.bin \\',
+  '  -device loader,\\',
+  '    file=target/.../os.bin,\\',
+  '    addr=0x80200000',
+];
+
+const CODE_FIRMWARE = [
+  '# 0x1000: reset_vector  (QEMU virt 고정 ROM)',
+  'reset_vector:',
+  '  auipc t0, 0      # t0 = 0x1000 (현재 PC)',
+  '  addi  a2, t0, 40 # a2 = DTB 주소',
+  '  csrr  a0, mhartid # a0 = hart ID (= 0)',
+  '  ld    t0, 24(t0)  # t0 = jump_target = 0x80000000',
+  '  jr    t0          # → RustSBI!',
+];
+
+const CODE_RUSTSBI = [
+  '// 0x80000000: rustsbi_main  (M-mode)',
+  'fn rustsbi_main() {',
+  '    init_uart();              // 콘솔 출력',
+  '    init_timer();             // CLINT 타이머',
+  '    init_pmp();               // 물리 메모리 보호',
+  '    medeleg = 0xb1ab;         // 예외 → S-mode',
+  '    mideleg = 0x0222;         // 인터럽트 → S-mode',
+  '    mepc    = 0x80200000;     // 커널 진입점',
+  '    mstatus.MPP = S_MODE;     // 다음 모드 = S',
+  '    mret();  // PC←mepc, mode←MPP',
+  '}',
+];
+
+const CODE_ENTRY = [
+  '# os/src/entry.asm',
+  '    .section .text.entry',
+  '    .globl _start',
+  '_start:                    # @ 0x80200000',
+  '    la sp, boot_stack_top  # sp 초기화 (64KB 스택)',
+  '    call rust_main          # Rust 커널 진입',
+  '',
+  '    .section .bss.stack',
+  'boot_stack_lower_bound:',
+  '    .space 4096 * 16       # 64KB',
+  'boot_stack_top:',
+];
+
+// ── 스텝 데이터 ──
+const STEPS = [
+  {
+    title: 'QEMU 실행 — ch1_layout에서 만든 os.bin 적재',
+    file: 'Makefile / shell',
+    code: CODE_QEMU, line: 0,
+    active: [],
+    prevPage: '../ch1_layout/index.html',
+    regs: { PC:'─', mode:'─', mepc:'─', mstatus:'─' },
+    desc: '← ch1_layout에서 linker.ld로 올바르게 배치된\nos.bin ELF 바이너리를 QEMU가 적재합니다.\n\n핵심 파라미터:\n• -machine virt: QEMU의 가상 RISC-V 보드\n• -bios rustsbi-qemu.bin → 0x80000000에 적재\n• -device loader,addr=0x80200000 → os.bin을 0x80200000에 적재\n\n아직 CPU는 동작 전 상태입니다.',
+    detail: 'KERNEL_ENTRY_PA = 0x80200000은 linker.ld의 BASE_ADDRESS와 반드시 일치해야 합니다.',
+  },
+  {
+    title: 'CPU 파워온: PC = 0x1000',
+    file: 'RISC-V Hardware',
+    code: CODE_QEMU, line: 0,
+    active: [],
+    regs: { PC:'0x00001000', mode:'M', mepc:'0x00000000', mstatus:'0x00000000' },
+    desc: 'QEMU가 전원을 인가합니다. CPU가 초기화됩니다.\n\n• 모든 일반 레지스터 = 0\n• PC = 0x1000  (RISC-V 스펙 정의 reset vector)\n• 특권 모드 = M-mode  (최고 특권)\n\n0x1000에는 QEMU virt 보드에 하드코딩된 소형 부트 코드가 있습니다.',
+    detail: 'RISC-V 스펙: 리셋 시 PC는 구현 정의된 reset vector로 설정됩니다. QEMU virt는 0x1000을 사용합니다.',
+  },
+  {
+    title: 'Firmware @ 0x1000 실행 시작',
+    file: 'QEMU virt ROM (0x1000)',
+    code: CODE_FIRMWARE, line: 1,
+    active: ['fw'],
+    regs: { PC:'0x00001000', mode:'M', mepc:'0x00000000', mstatus:'0x00000000' },
+    desc: '0x1000의 펌웨어 코드가 실행됩니다.\n\n이 코드는 QEMU virt 머신에 고정(ROM)되어 있으며,\n다음 부트스테이지(RustSBI)의 주소를 읽어 점프 준비를 합니다.\n\n주요 작업:\n• mhartid 읽기 → a0 = hart ID (= 0)\n• DTB 주소 계산 → a2\n• jump target = 0x80000000 로드 → t0',
+    detail: 'auipc로 현재 PC 기반 상대 주소를 계산합니다. RISC-V 부팅 규약: a0=hartid, a1=dtb.',
+  },
+  {
+    title: 'Firmware → RustSBI 점프 (0x80000000)',
+    file: 'QEMU virt ROM → RustSBI',
+    code: CODE_FIRMWARE, line: 6,
+    active: ['fw', 'sbi'],
+    regs: { PC:'0x80000000', mode:'M', mepc:'0x00000000', mstatus:'0x00000000' },
+    desc: '`jr t0` 명령으로 PC가 0x80000000(RustSBI)으로 점프합니다.\n\n이 시점에서:\n• a0 = 0 (hart ID)\n• a1 = DTB 물리 주소\n• PC = 0x80000000\n• M-mode 유지\n\nRustSBI가 하드웨어 초기화를 시작합니다.',
+    detail: '-bios로 지정한 rustsbi-qemu.bin이 이미 0x80000000에 적재되어 있어 즉시 실행됩니다.',
+  },
+  {
+    title: 'RustSBI: 하드웨어 초기화',
+    file: 'RustSBI @ 0x80000000 (M-mode)',
+    code: CODE_RUSTSBI, line: 2,
+    active: ['sbi'],
+    regs: { PC:'0x80000020', mode:'M', mepc:'0x00000000', mstatus:'0x00000000' },
+    desc: 'RustSBI가 M-mode에서 하드웨어를 초기화합니다.\n\n• UART: 콘솔 출력 준비\n• 타이머: CLINT 타이머 초기화\n• PMP: Physical Memory Protection\n  (커널이 접근 가능한 메모리 영역 정의)\n\nRustSBI 배너가 콘솔에 출력됩니다:\n  "[rustsbi] Version ...\n   [rustsbi] Platform: QEMU"',
+    detail: 'SBI = Supervisor Binary Interface. OS 커널과 펌웨어 사이의 표준 인터페이스 (RISC-V 스펙).',
+  },
+  {
+    title: 'RustSBI: medeleg / mideleg 설정',
+    file: 'RustSBI (M-mode)',
+    code: CODE_RUSTSBI, line: 5,
+    active: ['sbi'],
+    regs: { PC:'0x80000100', mode:'M', mepc:'0x00000000', mstatus:'0x00000000' },
+    desc: 'M-mode CSR을 설정하여 트랩을 S-mode로 위임합니다.\n\n• medeleg = 0xb1ab: 예외(exception)를 S-mode에서 처리\n  (페이지폴트, ecall from U-mode, 불법 명령 등)\n• mideleg = 0x0222: 인터럽트를 S-mode에서 처리\n  (타이머 인터럽트, 외부 인터럽트)\n\n이 설정 후 OS 커널이 직접 트랩을 처리할 수 있습니다.',
+    detail: 'medeleg/mideleg 비트 1: 해당 트랩을 M-mode handler 대신 S-mode의 stvec로 전달합니다.',
+  },
+  {
+    title: 'RustSBI: mepc = 0x80200000, mstatus.MPP = S',
+    file: 'RustSBI (M-mode)',
+    code: CODE_RUSTSBI, line: 7,
+    active: ['sbi', 'k'],
+    regs: { PC:'0x80000200', mode:'M', mepc:'0x80200000', mstatus:'0x00000800' },
+    desc: 'RustSBI가 커널 진입을 준비합니다.\n\n• mepc = 0x80200000: mret 후 점프할 주소\n• mstatus.MPP = 01 (S-mode): mret 후 전환될 특권 모드\n\n"[rustsbi] Kernel entry: 0x80200000" 출력\n\nmret 명령은:\n  ① PC ← mepc = 0x80200000\n  ② mode ← mstatus.MPP = S-mode',
+    detail: 'MPP(Machine Previous Privilege): mret 실행 시 복귀할 특권 레벨. 01=S-mode, 00=U-mode, 11=M-mode.',
+  },
+  {
+    title: 'mret → S-mode 진입, PC = 0x80200000',
+    file: 'RustSBI mret → Kernel _start',
+    code: CODE_RUSTSBI, line: 9,
+    active: ['k'],
+    regs: { PC:'0x80200000', mode:'S', mepc:'0x80200000', mstatus:'0x00000100' },
+    desc: '`mret` 명령으로 특권 모드가 전환됩니다!\n\nmret 효과:\n① PC ← mepc = 0x80200000\n② mode ← MPP = S-mode  ← 핵심!\n③ mstatus.MIE ← MPIE\n\n이제 CPU는 S-mode(Supervisor Mode)로 동작하며,\nKERNEL_BIN의 _start 명령을 실행합니다.',
+    detail: 'M → S mode 전환. 커널은 이제 S-mode 특권: U-mode 앱보다 높고 M-mode(RustSBI)보다는 낮습니다.',
+  },
+  {
+    title: '_start: la sp, boot_stack_top',
+    file: 'os/src/entry.asm @ 0x80200000',
+    code: CODE_ENTRY, line: 4,
+    active: ['k'],
+    regs: { PC:'0x80200000', mode:'S', mepc:'0x80200000', mstatus:'0x00000100' },
+    desc: '커널의 첫 번째 명령이 실행됩니다.\n\n`la sp, boot_stack_top`\n\n• boot_stack_top ≈ 0x80213000 (linker.ld에서 결정)\n• .bss.stack 섹션에 4096×16=64KB 스택 공간 예약\n• sp를 설정해야 함수 호출(call)이 가능!\n\n스택은 높은 주소(top)에서 아래로 자랍니다.',
+    detail: 'boot_stack_top은 .bss.stack 섹션 끝 주소. la = lui + addi (2개 명령으로 확장됨).',
+  },
+  {
+    title: 'call rust_main → Rust 커널 진입!',
+    file: 'os/src/entry.asm → os/src/main.rs',
+    code: CODE_ENTRY, line: 5,
+    active: ['k'],
+    regs: { PC:'0x80200018', mode:'S', mepc:'0x80200000', mstatus:'0x00000100' },
+    desc: '`call rust_main`으로 Rust 커널에 진입합니다.\n\nrust_main 에서:\n• clear_bss(): .bss 섹션을 0으로 초기화\n• logging::init()\n• println!("[kernel] Hello, world!")\n• 메모리 레이아웃 정보 출력 (stext/etext/...)\n• QEMU 종료 (exit_success)\n\n裸机 환경에서 Rust 코드가 성공적으로 실행됩니다!',
+    detail: 'call = auipc ra, offset + jalr ra, 0(ra). rust_main은 #[no_mangle]로 링크 심볼명 보존.',
+  },
+];
